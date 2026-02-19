@@ -1,0 +1,8 @@
+{
+  "name": "FinanAssistant - Seu Gestor Inteligente",
+  "description": "Um assistente financeiro completo com IA para gestão de gastos, análise de recibos via OCR e dashboards inteligentes.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
