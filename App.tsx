@@ -1,4 +1,6 @@
 
+// App.tsx
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Menu, Loader2, ChevronLeft, ChevronRight, Calendar, Moon, Sun } from 'lucide-react';
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -100,7 +102,8 @@ const App: React.FC = () => {
           if (status === 'PENDING' && t.due_date && t.due_date < today) {
             status = 'OVERDUE';
           }
-          return { ...t, status, costType: t.cost_type, scope: t.scope || 'BUSINESS' };
+          // Usando cost_type para manter compatibilidade com a interface Transaction
+          return { ...t, status, cost_type: t.cost_type, scope: t.scope || 'BUSINESS' };
         });
         setTransactions(processedTransactions);
       }
@@ -168,7 +171,8 @@ const App: React.FC = () => {
         amount: Math.abs(finalAmount),
         type: newTrans.type || 'EXPENSE',
         status: newTrans.status || 'PAID',
-        cost_type: newTrans.costType || 'VARIABLE',
+        // Corrigido: usando cost_type da interface Transaction
+        cost_type: newTrans.cost_type || 'VARIABLE',
         scope: newTrans.scope || 'BUSINESS',
         date: finalDate,
         due_date: newTrans.due_date || finalDate,
@@ -236,7 +240,8 @@ const App: React.FC = () => {
         if (scope === 'BUSINESS') acc.businessExpenses += amount;
         else acc.personalExpenses += amount;
 
-        if (t.costType === 'FIXED') acc.fixedExpenses += amount;
+        // Corrigido: usando cost_type para verificar tipo de custo
+        if (t.cost_type === 'FIXED') acc.fixedExpenses += amount;
         else acc.variableExpenses += amount;
       }
       return acc;

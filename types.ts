@@ -2,7 +2,7 @@
 export type TransactionType = 'INCOME' | 'EXPENSE';
 export type TransactionStatus = 'PAID' | 'PENDING' | 'OVERDUE';
 export type CostType = 'FIXED' | 'VARIABLE';
-export type TransactionScope = 'PERSONAL' | 'BUSINESS'; // New Type
+export type TransactionScope = 'PERSONAL' | 'BUSINESS';
 export type UserPlan = 'FREE' | 'START' | 'PRO' | 'ENTERPRISE';
 export type UserRole = 'USER' | 'ADMIN' | 'MANAGER';
 export type Language = 'pt' | 'en' | 'es';
@@ -12,25 +12,25 @@ export interface Company {
   name: string;
   plan: UserPlan;
   cnpj?: string;
-  owner_id?: string; // ID do usuário dono desta empresa
-  scheduled_deletion_date?: string; // Data agendada para exclusão definitiva
+  owner_id?: string;
+  scheduled_deletion_date?: string;
   created_at: string;
 }
 
 export interface User {
   id: string;
-  company_id: string; // Campo obrigatório para vínculo empresarial
+  company_id: string;
   username: string;
-  email?: string; // Novo campo para envio de credenciais
+  password?: string;
+  email?: string;
   role: UserRole;
   plan: UserPlan; 
   language?: Language;
   avatar_url?: string;
-  createdAt: string;
-  // Novos campos de cadastro
+  created_at: string;
   whatsapp?: string;
-  document_number?: string; // CPF ou CNPJ do usuário
-  access_key?: string; // Chave única de acesso
+  document_number?: string;
+  access_key?: string;
 }
 
 export interface Category {
@@ -51,14 +51,13 @@ export interface Transaction {
   type: TransactionType;
   status: TransactionStatus;
   category: string;
-  costType?: CostType;
   cost_type?: CostType;
   scope?: TransactionScope;
   date: string; 
   due_date?: string;
   is_recurring?: boolean;
-  installment_current?: number; // Nova: Parcela Atual (ex: 1)
-  installment_total?: number;   // Nova: Total Parcelas (ex: 12)
+  installment_current?: number;
+  installment_total?: number;
   created_at?: string;
 }
 
@@ -70,7 +69,6 @@ export interface FinancialSummary {
   variableExpenses: number;
   pendingReceivables: number;
   overdueReceivables: number;
-  // New Breakdown Fields
   businessIncome: number;
   businessExpenses: number;
   personalIncome: number;
@@ -91,39 +89,37 @@ export enum AppView {
   RECEIVABLES = 'RECEIVABLES',
   PAYABLES = 'PAYABLES',
   LOANS = 'LOANS', 
-  NFSE = 'NFSE', // Novo Módulo NFS-e
+  NFSE = 'NFSE',
   CHAT = 'CHAT',
   ADMIN = 'ADMIN',
   SETTINGS = 'SETTINGS'
 }
 
-// --- NFS-e SP Types ---
-
 export interface NfseClient {
   id: string;
   company_id: string;
-  name: string; // Razão Social
+  name: string;
   doc_type: 'CNPJ' | 'CPF';
   doc_number: string;
-  im?: string; // Inscrição Municipal (Opcional para fora de SP)
+  im?: string;
   email?: string;
-  address_street: string; // Logradouro
+  address_street: string;
   address_number: string;
   address_complement?: string;
-  address_neighborhood: string; // Bairro
-  address_city_code: string; // Código IBGE (7 dígitos)
+  address_neighborhood: string;
+  address_city_code: string;
   address_city_name?: string;
-  address_state: string; // UF
-  address_zip: string; // CEP
+  address_state: string;
+  address_zip: string;
 }
 
 export interface NfseService {
   id: string;
   company_id: string;
-  code: string; // Código do Serviço (Item 10 PDF)
-  description: string; // Discriminação padrão
-  aliquot: number; // Alíquota (ex: 0.05 para 5%)
-  iss_retained: boolean; // ISS Retido pelo Tomador?
+  code: string;
+  description: string;
+  aliquot: number;
+  iss_retained: boolean;
 }
 
 export interface NfseRps {
@@ -132,58 +128,23 @@ export interface NfseRps {
   client_id: string;
   service_id: string;
   rps_number: number;
-  rps_series: string; // ex: "RPS", "A", "1"
-  issue_date: string; // Data Emissão (AAAA-MM-DD)
+  rps_series: string;
+  issue_date: string;
   status: 'NORMAL' | 'CANCELADO';
-  
-  // Valores
-  service_amount: number; // Valor Serviços
-  deductions_amount: number; // Valor Deduções
-  pis_amount: number;
-  cofins_amount: number;
-  inss_amount: number;
-  ir_amount: number;
-  csll_amount: number;
-  iss_amount: number; // Valor ISS
-  total_amount: number; // Valor Líquido
-
-  // Controle
-  batch_number?: number; // Número do Lote enviado
-  protocol?: string; // Protocolo de Envio
-  nfe_number?: number; // Número da Nota gerada
-  nfe_verification_code?: string; // Código de Verificação
+  service_amount: number;
+  iss_amount: number;
+  total_amount: number;
+  nfe_number?: number;
+  nfe_verification_code?: string;
   transmission_status: 'DRAFT' | 'TRANSMITTING' | 'AUTHORIZED' | 'REJECTED';
-  xml_return_message?: string;
 }
 
 export interface NfseConfig {
   id: string;
   company_id: string;
-  im: string; // Inscrição Municipal do Prestador
-  certificate_pfx_base64?: string; // Certificado A1 (Base64) - Armazenar com cuidado
+  im: string;
+  certificate_pfx_base64?: string;
   certificate_password?: string;
-  rps_series: string; // Série Atual
-  last_rps_number: number; // Último número utilizado
+  rps_series: string;
+  last_rps_number: number;
 }
-
-// Paleta de Cores para Dashboard e Categorias
-export const COLOR_PALETTE = {
-  emerald: '#10b981',
-  blue: '#3b82f6',
-  amber: '#f59e0b',
-  red: '#ef4444',
-  violet: '#8b5cf6',
-  pink: '#ec4899',
-  cyan: '#06b6d4',
-  lime: '#84cc16',
-  indigo: '#6366f1',
-  teal: '#14b8a6',
-  orange: '#f97316',
-  purple: '#a855f7',
-  sky: '#0ea5e9',
-  rose: '#f43f5e',
-  slate: '#64748b',
-  yellow: '#eab308',
-  fuchsia: '#d946ef',
-  green: '#22c55e'
-};
