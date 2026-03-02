@@ -56,12 +56,14 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem('finanai_session_v3');
-    if (saved) {
+    if (saved && saved !== "undefined") {
       try {
         const parsed = JSON.parse(saved);
         setCurrentUser(parsed);
         setLanguage(parsed.language || 'pt');
       } catch (e) { localStorage.removeItem('finanai_session_v3'); }
+    } else if (saved === "undefined") {
+      localStorage.removeItem('finanai_session_v3');
     }
   }, []);
 

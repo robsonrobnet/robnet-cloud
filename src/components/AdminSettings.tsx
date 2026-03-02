@@ -38,6 +38,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     dbKey: localStorage.getItem('finanai_db_key') || ''
   });
 
+  // Success Modal State
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+
   useEffect(() => { fetchAdminData(); }, [currentUser]);
 
   const fetchAdminData = async () => {
@@ -69,9 +73,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     setIsLoading(true);
     try {
       console.log(`[Admin] Wiping transactions for company: ${currentUser.company_id}`);
-      await FinancialService.wipeTransactions(currentUser.company_id);
+      const count = await FinancialService.wipeTransactions(currentUser.company_id);
       
-      alert("Sucesso: Histórico de transações limpo.");
+      setSuccessMessage(`Operação concluída com sucesso.\n${count || 0} registros foram removidos.`);
+      setShowSuccessModal(true);
+      
       await fetchData();
     } catch (e: any) {
       console.error("[Admin] Wipe failed:", e);
@@ -220,6 +226,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                     </div>
                  </div>
                  <button onClick={() => { updateSupabaseConfig(sysConfig.dbUrl, sysConfig.dbKey); alert("Infraestrutura Atualizada!"); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3"><Save size={18} /> Salvar Setup de Conexão</button>
+
+                 {/* DANGER ZONE */}
+                 <div className="mt-12 pt-12 border-t border-slate-200 dark:border-slate-800">
+                    <h4 className="text-sm font-black text-rose-500 uppercase tracking-widest mb-6 flex items-center gap-2"><AlertOctagon size={16} /> Zona de Perigo</h4>
+                    <div className="p-6 bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 rounded-[2rem] flex items-center justify-between">
+                        <div>
+                            <p className="text-xs font-black text-slate-800 dark:text-white uppercase">Limpar Transações</p>
+                            <p className="text-[10px] text-slate-500 mt-1 uppercase">Remove todo o histórico financeiro desta empresa.</p>
+                        </div>
+                        <button onClick={handleWipeTransactions} disabled={isLoading} className="px-6 py-3 bg-white dark:bg-slate-800 text-rose-500 border border-rose-200 dark:border-rose-900/50 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm flex items-center gap-2">
+                            {isLoading ? <Loader2 className="animate-spin" size={14}/> : <Eraser size={14} />} Executar Limpeza
+                        </button>
+                    </div>
+                 </div>
              </div>
          )}
 
@@ -274,14 +294,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                              <h4 className="text-lg font-black uppercase tracking-[0.2em] mb-4 flex items-center gap-3"><Terminal size={24} className="text-indigo-400" /> Operações de Emergência</h4>
                              <p className="text-xs text-slate-400 mb-8 font-bold uppercase">Utilize com extrema cautela. Estas ações são definitivas.</p>
                              
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-                                 <button onClick={handleWipeTransactions} disabled={isLoading} className="p-6 bg-white/5 border border-white/10 rounded-3xl hover:bg-white/10 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
-                                     {isLoading ? <Loader2 className="animate-spin text-amber-400" size={24}/> : <Eraser className="text-amber-400" size={24} />}
-                                     <div>
-                                         <p className="text-xs font-black uppercase tracking-widest">Limpar Transações</p>
-                                         <p className="text-[10px] text-slate-500 mt-1 uppercase">Zerar histórico financeiro</p>
-                                     </div>
-                                 </button>
+                             <div className="grid grid-cols-1 gap-4 mt-8">
                                  <button onClick={handleMasterReset} disabled={isLoading} className="p-6 bg-rose-500/10 border border-rose-500/30 rounded-3xl hover:bg-rose-500/20 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
                                      {isLoading ? <Loader2 className="animate-spin text-rose-500" size={24}/> : <Skull className="text-rose-500" size={24} />}
                                      <div>
@@ -343,6 +356,22 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                   </form>
               </div>
           </div>
+      )}
+
+      {/* SUCCESS MODAL */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl relative animate-in zoom-in-95 border border-emerald-500/20 text-center">
+                <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                    <CheckCircle2 size={40} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">Sucesso!</h3>
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-8 whitespace-pre-line">{successMessage}</p>
+                <button onClick={() => setShowSuccessModal(false)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all">
+                    Entendido
+                </button>
+            </div>
+        </div>
       )}
     </div>
   );

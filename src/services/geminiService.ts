@@ -94,7 +94,7 @@ export const analyzeFinancialInput = async (
     let cleanTextResponse = rawText;
 
     const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
+    if (jsonMatch && jsonMatch[1]) {
       try {
         const parsed = JSON.parse(jsonMatch[1]);
         extractedTransactions = parsed.extractedTransactions || [];

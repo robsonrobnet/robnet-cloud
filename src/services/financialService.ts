@@ -295,13 +295,13 @@ export const FinancialService = {
    * Bulk delete all transactions for a company
    */
   async wipeTransactions(companyId: string) {
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('transactions')
-      .delete()
+      .delete({ count: 'exact' })
       .eq('company_id', companyId);
     
     if (error) throw error;
-    return true;
+    return count;
   },
 
   /**

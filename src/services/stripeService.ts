@@ -3,7 +3,12 @@ export const StripeService = {
   async getBalance() {
     const res = await fetch("/api/stripe/balance");
     if (!res.ok) throw new Error("Falha ao buscar saldo do Stripe");
-    return res.json();
+    try {
+      return await res.json();
+    } catch (e) {
+      console.error("Erro ao parsear resposta do Stripe:", e);
+      return { available: [], pending: [] }; // Fallback
+    }
   },
 
   async createPaymentLink(name: string, amount: number) {
@@ -13,12 +18,22 @@ export const StripeService = {
       body: JSON.stringify({ name, amount }),
     });
     if (!res.ok) throw new Error("Falha ao criar link de pagamento");
-    return res.json();
+    try {
+      return await res.json();
+    } catch (e) {
+      console.error("Erro ao parsear resposta do Stripe:", e);
+      throw e;
+    }
   },
 
   async getPayments() {
     const res = await fetch("/api/stripe/payments");
     if (!res.ok) throw new Error("Falha ao buscar pagamentos");
-    return res.json();
+    try {
+      return await res.json();
+    } catch (e) {
+      console.error("Erro ao parsear resposta do Stripe:", e);
+      return []; // Fallback
+    }
   }
 };
