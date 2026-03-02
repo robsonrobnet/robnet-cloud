@@ -7,9 +7,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  define: {
-    'global': 'window',
-  },
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1600,

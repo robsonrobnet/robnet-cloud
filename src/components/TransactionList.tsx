@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, TransactionType, Category, TransactionScope, Company } from '../types';
 import { 
   Search, Trash2, Calendar, Tag, ShoppingBag, Coffee, Car, Home, 
@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { supabase, formatSupabaseError } from '../lib/supabase';
 import { FinancialService } from '../services/financialService';
+import { List, RowComponentProps, ListImperativeAPI } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 const ICON_MAP: Record<string, any> = {
   Tag, ShoppingBag, Coffee, Car, Home, Heart, Zap, Gamepad2, Utensils, 
@@ -164,6 +166,97 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       return date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
   };
 
+  // 3. Virtualization Logic
+  const flattenedItems = useMemo(() => {
+    const items: any[] = [];
+    const sortedDates = Object.keys(groupedTransactions).sort((a,b) => new Date(b).getTime() - new Date(a).getTime());
+    
+    sortedDates.forEach(dateKey => {
+      items.push({ type: 'header', dateKey, count: groupedTransactions[dateKey].length });
+      groupedTransactions[dateKey].forEach(t => {
+        items.push({ type: 'transaction', transaction: t });
+      });
+    });
+    return items;
+  }, [groupedTransactions]);
+
+  const listRef = useRef<ListImperativeAPI>(null);
+
+  const getItemSize = (index: number) => {
+    const item = flattenedItems[index];
+    if (item.type === 'header') return 48; // Height of the date header
+    return 100; // Approximate height of a transaction row
+  };
+
+  const Row = ({ index, style }: RowComponentProps) => {
+    const item = flattenedItems[index];
+    
+    if (item.type === 'header') {
+      return (
+        <div style={style} className="px-6 py-3 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+              <CalendarDays size={16} className="text-indigo-500" />
+              <span className="text-xs font-black uppercase text-slate-600 dark:text-slate-300 tracking-wide">{formatDateHeader(item.dateKey)}</span>
+           </div>
+           <span className="text-[10px] font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">{item.count} itens</span>
+        </div>
+      );
+    }
+
+    const t = item.transaction;
+    const category = categories.find(c => c.id === t.category_id || c.name === t.category);
+    const Icon = ICON_MAP[category?.icon || 'Tag'] || Tag;
+    const entityName = getEntityName(t);
+    const isOverdue = t.status === 'OVERDUE';
+
+    return (
+      <div style={style} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-4 flex-1">
+             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${t.type === 'INCOME' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600'}`}>
+                <Icon size={20} />
+             </div>
+             <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                   <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${t.scope === 'PERSONAL' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-400' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'}`}>
+                      {t.scope === 'PERSONAL' ? 'PF' : 'PJ'}
+                   </span>
+                   <p className="text-xs font-bold text-slate-400 truncate">{entityName} • {category?.name || t.category}</p>
+                </div>
+                <h4 className={`text-sm font-black text-slate-800 dark:text-white truncate ${t.status === 'PAID' ? 'opacity-70 line-through decoration-slate-300 dark:decoration-slate-600' : ''}`}>{t.description}</h4>
+                {t.installment_total && <span className="text-[9px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>}
+             </div>
+          </div>
+
+          <div className="flex items-center justify-between md:justify-end gap-6 md:w-auto w-full border-t md:border-t-0 border-slate-100 dark:border-slate-800 pt-3 md:pt-0">
+             <div className="text-right">
+                <div className="flex flex-col items-end">
+                   <span className={`text-sm font-black tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-white'}`}>
+                      {t.type === 'INCOME' ? '+' : '-'} R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                   </span>
+                   {t.status === 'PAID' ? 
+                      <span className="text-[9px] font-black uppercase text-emerald-500 flex items-center gap-1"><CheckCircle2 size={10}/> Pago</span> : 
+                      isOverdue ? <span className="text-[9px] font-black uppercase text-rose-500 flex items-center gap-1"><AlertTriangle size={10}/> Atrasado</span> :
+                      <span className="text-[9px] font-black uppercase text-amber-500 flex items-center gap-1"><Clock size={10}/> Pendente</span>
+                   }
+                </div>
+             </div>
+             
+             <div className="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => handleToggleStatus(t)} className={`p-2 rounded-xl transition-colors ${t.status === 'PAID' ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-slate-400 hover:text-emerald-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title={t.status === 'PAID' ? "Marcar como Pendente" : "Marcar como Pago"}>
+                   <CheckCircle2 size={18} />
+                </button>
+                <button onClick={() => initiateEdit(t)} className="p-2 rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Editar">
+                   <Edit size={18} />
+                </button>
+                <button onClick={() => handleDelete(t.id)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors" title="Excluir">
+                   <Trash2 size={18} />
+                </button>
+             </div>
+          </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 relative pb-20 animate-in fade-in duration-500">
       
@@ -259,10 +352,10 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         </div>
       </div>
 
-      {/* TRANSACTION LIST (GROUPED) */}
-      <div className="space-y-6">
-         {Object.keys(groupedTransactions).length === 0 ? (
-            <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800">
+      {/* TRANSACTION LIST (VIRTUALIZED) */}
+      <div className="h-[600px] w-full bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+         {flattenedItems.length === 0 ? (
+            <div className="text-center py-20">
                <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-4 text-slate-300 dark:text-slate-600">
                   <Filter size={32} />
                </div>
@@ -270,72 +363,17 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                <p className="text-slate-400 text-xs font-bold uppercase tracking-wide mt-2">Tente ajustar os filtros ou adicione novos itens.</p>
             </div>
          ) : (
-            Object.keys(groupedTransactions).sort((a,b) => new Date(b).getTime() - new Date(a).getTime()).map(dateKey => (
-               <div key={dateKey} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
-                  <div className="px-6 py-3 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                     <div className="flex items-center gap-2">
-                        <CalendarDays size={16} className="text-indigo-500" />
-                        <span className="text-xs font-black uppercase text-slate-600 dark:text-slate-300 tracking-wide">{formatDateHeader(dateKey)}</span>
-                     </div>
-                     <span className="text-[10px] font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">{groupedTransactions[dateKey].length} itens</span>
-                  </div>
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                     {groupedTransactions[dateKey].map(t => {
-                        const category = categories.find(c => c.id === t.category_id || c.name === t.category);
-                        const Icon = ICON_MAP[category?.icon || 'Tag'] || Tag;
-                        const entityName = getEntityName(t);
-                        const isOverdue = t.status === 'OVERDUE';
-                        
-                        return (
-                           <div key={t.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group">
-                              <div className="flex items-center gap-4 flex-1">
-                                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${t.type === 'INCOME' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600'}`}>
-                                    <Icon size={20} />
-                                 </div>
-                                 <div className="min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                       <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${t.scope === 'PERSONAL' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-400' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'}`}>
-                                          {t.scope === 'PERSONAL' ? 'PF' : 'PJ'}
-                                       </span>
-                                       <p className="text-xs font-bold text-slate-400 truncate">{entityName} • {category?.name || t.category}</p>
-                                    </div>
-                                    <h4 className={`text-sm font-black text-slate-800 dark:text-white truncate ${t.status === 'PAID' ? 'opacity-70 line-through decoration-slate-300 dark:decoration-slate-600' : ''}`}>{t.description}</h4>
-                                    {t.installment_total && <span className="text-[9px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>}
-                                 </div>
-                              </div>
-
-                              <div className="flex items-center justify-between md:justify-end gap-6 md:w-auto w-full border-t md:border-t-0 border-slate-100 dark:border-slate-800 pt-3 md:pt-0">
-                                 <div className="text-right">
-                                    <div className="flex flex-col items-end">
-                                       <span className={`text-sm font-black tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-white'}`}>
-                                          {t.type === 'INCOME' ? '+' : '-'} R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                       </span>
-                                       {t.status === 'PAID' ? 
-                                          <span className="text-[9px] font-black uppercase text-emerald-500 flex items-center gap-1"><CheckCircle2 size={10}/> Pago</span> : 
-                                          isOverdue ? <span className="text-[9px] font-black uppercase text-rose-500 flex items-center gap-1"><AlertTriangle size={10}/> Atrasado</span> :
-                                          <span className="text-[9px] font-black uppercase text-amber-500 flex items-center gap-1"><Clock size={10}/> Pendente</span>
-                                       }
-                                    </div>
-                                 </div>
-                                 
-                                 <div className="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleToggleStatus(t)} className={`p-2 rounded-xl transition-colors ${t.status === 'PAID' ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-slate-400 hover:text-emerald-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title={t.status === 'PAID' ? "Marcar como Pendente" : "Marcar como Pago"}>
-                                       <CheckCircle2 size={18} />
-                                    </button>
-                                    <button onClick={() => initiateEdit(t)} className="p-2 rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Editar">
-                                       <Edit size={18} />
-                                    </button>
-                                    <button onClick={() => handleDelete(t.id)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors" title="Excluir">
-                                       <Trash2 size={18} />
-                                    </button>
-                                 </div>
-                              </div>
-                           </div>
-                        );
-                     })}
-                  </div>
-               </div>
-            ))
+            <AutoSizer renderProp={({ height, width }) => (
+                <List
+                  listRef={listRef}
+                  style={{ height: height || 600, width: width || 800 }}
+                  rowCount={flattenedItems.length}
+                  rowHeight={getItemSize}
+                  rowComponent={Row}
+                  rowProps={{}}
+                  className="custom-scrollbar"
+                />
+            )} />
          )}
       </div>
     </div>

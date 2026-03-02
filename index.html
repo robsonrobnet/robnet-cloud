@@ -7,6 +7,26 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      if (typeof global === 'undefined') {
+        window.global = window;
+      }
+      if (typeof process === 'undefined') {
+        window.process = { env: {} };
+      }
+      // Prevent libraries from overwriting fetch if it's already a getter
+      const originalFetch = window.fetch;
+      try {
+        Object.defineProperty(window, 'fetch', {
+          configurable: true,
+          enumerable: true,
+          get: () => originalFetch,
+          set: (v) => { console.warn('Library tried to overwrite fetch', v); }
+        });
+      } catch (e) {
+        console.error('Could not protect fetch', e);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
