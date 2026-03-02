@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Loader2, Sparkles, Mic, MicOff, X, Building2, User, FileText, FileSpreadsheet, File, Maximize2, Check, Calendar as CalendarIcon, DollarSign, Tag, AlertTriangle, Trash2, ArrowRight, Clock, Calendar, FileCode } from 'lucide-react';
+import { Send, Paperclip, Loader2, Sparkles, Mic, MicOff, X, Building2, User, FileText, FileSpreadsheet, File, Maximize2, Check, Calendar as CalendarIcon, DollarSign, Tag, AlertTriangle, Trash2, ArrowRight, Clock, Calendar, FileCode, Camera } from 'lucide-react';
 import { ChatMessage, Transaction, User as UserType, Language, TransactionScope, Company, Category } from '../types';
 import { analyzeFinancialInput, Attachment } from '../services/geminiService';
 import { FinancialService } from '../services/financialService';
@@ -175,12 +175,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
         if (silenceTimer.current) clearTimeout(silenceTimer.current);
     }
 
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: selectedFile ? `[Arquivo: ${selectedFile.name}] ${input}` : input, timestamp: Date.now() };
+    const isImage = selectedFile?.type.startsWith('image/');
+    const defaultPrompt = isImage ? "Analise este recibo/comprovante e extraia os dados financeiros." : "";
+    const finalInput = input.trim() || defaultPrompt;
+
+    const userMsg: ChatMessage = { 
+      id: Date.now().toString(), 
+      role: 'user', 
+      content: selectedFile ? `[Arquivo: ${selectedFile.name}] ${finalInput}` : finalInput, 
+      timestamp: Date.now() 
+    };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     onSaveMessage(userMsg);
     
-    const currentInput = input;
+    const currentInput = finalInput;
     const currentFile = selectedFile;
     const forcedScope = manualScope;
     
@@ -478,7 +487,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
       </div>
       <div className="p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 shrink-0">
         {selectedFile && <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700 w-fit pr-4 animate-in slide-in-from-bottom-2">{filePreview ? <img src={filePreview} className="w-10 h-10 object-cover rounded-xl border border-slate-200 dark:border-slate-600" alt="Preview" /> : <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-xl flex items-center justify-center border border-slate-200 dark:border-slate-600">{getFileIcon(selectedFile.type, selectedFile.name)}</div>}<div className="flex flex-col"><span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide truncate max-w-[150px]">{selectedFile.name}</span><span className="text-[9px] font-bold text-slate-400 uppercase">{(selectedFile.size / 1024).toFixed(1)} KB</span></div><button onClick={clearFile} className="ml-2 bg-rose-500 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X size={12} /></button></div>}
-        <div className="flex items-center gap-2"><input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.csv,.xlsx,.xls,.ofx,.txt" onChange={handleFileSelect} /><button onClick={() => fileInputRef.current?.click()} className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-emerald-600 rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-slate-100 dark:border-slate-700"><Paperclip size={20} /></button><div className="flex-1 relative group"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" value={input} onChange={(e) => setInput(e.target.value)} onPaste={handlePaste} placeholder="Digite..." onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><div className="absolute right-2 top-2 flex gap-1"><button onClick={toggleListening} className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} title="Falar Comando">{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button><button onClick={handleSend} className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"><Send size={16} /></button></div></div></div>
+        <div className="flex items-center gap-2"><input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.csv,.xlsx,.xls,.ofx,.txt" onChange={handleFileSelect} /><div className="flex gap-1">
+            <button 
+              onClick={() => fileInputRef.current?.click()} 
+              className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-emerald-600 rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-slate-100 dark:border-slate-700"
+              title="Anexar Arquivo"
+            >
+              <Paperclip size={20} />
+            </button>
+            <button 
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.setAttribute('capture', 'environment');
+                  fileInputRef.current.click();
+                  setTimeout(() => fileInputRef.current?.removeAttribute('capture'), 1000);
+                }
+              }} 
+              className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-slate-100 dark:border-slate-700"
+              title="Escanear Recibo (Câmera)"
+            >
+              <Camera size={20} />
+            </button>
+          </div>
+<div className="flex-1 relative group"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" value={input} onChange={(e) => setInput(e.target.value)} onPaste={handlePaste} placeholder="Digite..." onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><div className="absolute right-2 top-2 flex gap-1"><button onClick={toggleListening} className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} title="Falar Comando">{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button><button onClick={handleSend} className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"><Send size={16} /></button></div></div></div>
       </div>
     </div>
   );

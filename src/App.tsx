@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Menu, Loader2, ChevronLeft, ChevronRight, Calendar, Moon, Sun } from 'lucide-react';
-import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Transaction, AppView, ChatMessage, User, Language, Category, Company } from './types';
 import Dashboard from './components/Dashboard';
 import ChatInterface from './components/ChatInterface';
@@ -13,6 +12,7 @@ import AdminSettings from './components/AdminSettings';
 import ReceivablesManager from './components/ReceivablesManager';
 import CreditLoansManager from './components/CreditLoansManager';
 import NfseManager from './components/NfseManager';
+import StripeManager from './components/StripeManager';
 import Login from './components/Login';
 import { translations } from './lib/translations';
 import { FinancialService } from './services/financialService';
@@ -165,7 +165,7 @@ const App: React.FC = () => {
       const payload = {
         user_id: currentUser.id,
         company_id: newTrans.company_id || currentUser.company_id, // Allow override
-        category_id: matchingCategory?.id || null,
+        category_id: matchingCategory?.id || undefined,
         category: matchingCategory?.name || newTrans.category || 'Outros', 
         description: newTrans.description ? String(newTrans.description) : 'Transação Importada',
         amount: Math.abs(finalAmount),
@@ -258,7 +258,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-inter transition-colors duration-300">
-      <SpeedInsights />
       <Sidebar currentView={view} setView={setView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={() => setCurrentUser(null)} t={t} />
       <main className="flex-1 lg:ml-64 relative flex flex-col h-screen overflow-hidden">
         <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 md:px-10 shrink-0 z-30 transition-colors duration-300">
@@ -311,6 +310,8 @@ const App: React.FC = () => {
                <CreditLoansManager transactions={transactions} categories={categories} onUpdate={fetchData} />
             : view === AppView.NFSE ?
                <NfseManager currentUser={currentUser} />
+            : view === AppView.STRIPE ?
+               <StripeManager />
             : view === AppView.TRANSACTIONS ? 
               <TransactionList 
                 transactions={filteredTransactions} 

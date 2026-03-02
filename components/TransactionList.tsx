@@ -117,13 +117,13 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         status: editingTransaction.status,
         date: editingTransaction.date,
         due_date: editingTransaction.due_date || editingTransaction.date,
-        category_id: editingTransaction.category_id || null,
+        category_id: editingTransaction.category_id || undefined,
         category: editingTransaction.category,
         scope: editingTransaction.scope || 'BUSINESS', 
         company_id: editingTransaction.company_id,
         is_recurring: editingTransaction.is_recurring || false,
-        installment_current: editingTransaction.installment_current || null,
-        installment_total: editingTransaction.installment_total || null
+        installment_current: editingTransaction.installment_current || undefined,
+        installment_total: editingTransaction.installment_total || undefined
       };
 
       await FinancialService.updateTransaction(editingTransaction.id, payload);

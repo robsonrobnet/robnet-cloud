@@ -291,6 +291,42 @@ export const FinancialService = {
     if (error) throw error;
   },
 
+  /**
+   * Bulk delete all transactions for a company
+   */
+  async wipeTransactions(companyId: string) {
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('company_id', companyId);
+    
+    if (error) throw error;
+    return true;
+  },
+
+  /**
+   * Master Reset: Deletes all data related to a company except the current user
+   */
+  async wipeAllCompanyData(companyId: string, currentUserId: string) {
+    // 1. Transactions
+    const tRes = await supabase.from('transactions').delete().eq('company_id', companyId);
+    if (tRes.error) throw tRes.error;
+
+    // 2. Categories
+    const cRes = await supabase.from('categories').delete().eq('company_id', companyId);
+    if (cRes.error) throw cRes.error;
+
+    // 3. NFSe Config
+    const nRes = await supabase.from('nfse_config').delete().eq('company_id', companyId);
+    if (nRes.error) throw nRes.error;
+
+    // 4. Other Users
+    const uRes = await supabase.from('users').delete().eq('company_id', companyId).neq('id', currentUserId);
+    if (uRes.error) throw uRes.error;
+
+    return true;
+  },
+
   async getChatHistory(userId: string) {
     const { data, error } = await supabase
       .from('chat_messages')

@@ -1,21 +1,28 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
+  define: {
+    'global': 'window',
+  },
   build: {
     outDir: 'dist',
-    chunkSizeWarningLimit: 1600, // Aumenta limite para evitar warnings no log
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'recharts', 'lucide-react', '@supabase/supabase-js'],
-          ai: ['@google/generative-ai']
+          vendor: ['react', 'react-dom', 'recharts', 'lucide-react', '@supabase/supabase-js']
         }
       }
     }
   },
   server: {
-    host: true
+    host: true,
+    port: 3000
   }
 });

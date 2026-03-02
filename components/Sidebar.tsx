@@ -101,6 +101,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
         allowed: canAccess('ENTERPRISE'),
         reqLabel: 'Profissional'
     },
+    { 
+        id: AppView.STRIPE, 
+        label: "Stripe Payments", 
+        icon: CreditCard, 
+        allowed: canAccess('PROFESSIONAL'),
+        reqLabel: 'Intermed.'
+    },
   ];
 
   const handleNav = (item: any) => {

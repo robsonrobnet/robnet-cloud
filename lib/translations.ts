@@ -1,3 +1,4 @@
+
 export type Language = 'pt' | 'en' | 'es';
 
 export const translations = {
@@ -5,7 +6,7 @@ export const translations = {
     dashboard: "Resumo",
     finances: "Finanças",
     ai_assistant: "Assistente IA",
-    admin_panel: "Central de Comando",
+    admin_panel: "Configurador",
     master_panel: "Gestão Master",
     logout: "Sair do Sistema",
     balance: "Saldo Consolidado",
@@ -49,7 +50,7 @@ export const translations = {
     dashboard: "Dashboard",
     finances: "Finances",
     ai_assistant: "AI Assistant",
-    admin_panel: "Control Center",
+    admin_panel: "Configurator",
     master_panel: "Master Management",
     logout: "Sign Out",
     balance: "Consolidated Balance",
@@ -93,7 +94,7 @@ export const translations = {
     dashboard: "Resumen",
     finances: "Finanzas",
     ai_assistant: "Asistente IA",
-    admin_panel: "Centro de Mando",
+    admin_panel: "Configurador",
     master_panel: "Gestión Master",
     logout: "Cerrar Sesión",
     balance: "Saldo Consolidado",
@@ -116,7 +117,7 @@ export const translations = {
     security_key: "Clave de Seguridad",
     user_identity: "Identidad de Usuario",
     login_btn: "Entrar al Sistema",
-    register_btn: "Crear Perfil",
+    register_btn: "Criar Perfil",
     restricted_access: "Acceso Restringido",
     mrr_revenue: "MRR - Ingresos Recurrentes",
     potential: "Potencial",
@@ -128,9 +129,9 @@ export const translations = {
     create_terminal: "Generar Nuevo Terminal",
     terminal_user: "Usuario del Terminal",
     terminal_pass: "Contraseña de Acceso",
-    terminal_role: "Nivel de Permiso",
+    terminal_role: "Nível de Permiso",
     save_config: "Guardar Ajustes",
     llm_settings: "Configuración de IA (LLM)",
-    db_settings: "Configuración de Base de Datos"
+    db_settings: "Configuración de Base de Dados"
   }
 };

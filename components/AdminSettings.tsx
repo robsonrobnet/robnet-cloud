@@ -2,10 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, Users, Building2, Tags, Settings, Plus, Edit, Trash2, 
-  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock
+  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette
 } from 'lucide-react';
 import { supabase, formatSupabaseError, updateSupabaseConfig } from '../lib/supabase';
 import { User, Company, Category, UserRole, UserPlan, Language } from '../types';
+import { FinancialService } from '../services/financialService';
 
 interface AdminSettingsProps {
   currentUser: User;
@@ -18,7 +19,7 @@ interface AdminSettingsProps {
 const AdminSettings: React.FC<AdminSettingsProps> = ({ 
   currentUser, t, language, onLanguageChange, fetchData 
 }) => {
-  const [activeTab, setActiveTab] = useState<'USERS' | 'COMPANIES' | 'CATEGORIES' | 'SYSTEM' | 'MASTER'>('USERS');
+  const [activeTab, setActiveTab] = useState<'USERS' | 'SYSTEM' | 'CATEGORIES' | 'MASTER'>('USERS');
   const [isLoading, setIsLoading] = useState(false);
   const [masterPass, setMasterPass] = useState('');
   const [isMasterUnlocked, setIsMasterUnlocked] = useState(false);
@@ -28,281 +29,177 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [companies, setCompanies] = useState<Company[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
 
-  // Config States
+  // Category Management State
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
+
   const [sysConfig, setSysConfig] = useState({
     dbUrl: localStorage.getItem('finanai_db_url') || '',
     dbKey: localStorage.getItem('finanai_db_key') || ''
   });
 
-  // Edit States
-  const [showEditUserModal, setShowEditUserModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
-  const [editPassword, setEditPassword] = useState('');
-
-  // SCRIPT SQL COMPLETO PARA SUPABASE
-  const FULL_SQL_SCRIPT = `-- FINANAI OS v6.0 - FULL DATABASE SETUP
--- Execute este script no SQL Editor do Supabase para montar a estrutura do zero.
-
--- 1. EXTENSÕES
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- 2. TABELA: COMPANIES
-CREATE TABLE IF NOT EXISTS public.companies (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL,
-  plan TEXT DEFAULT 'FREE' CHECK (plan IN ('FREE', 'START', 'PRO', 'ENTERPRISE')),
-  cnpj TEXT,
-  owner_id UUID,
-  scheduled_deletion_date TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. TABELA: USERS
-CREATE TABLE IF NOT EXISTS public.users (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
-  username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
-  email TEXT,
-  whatsapp TEXT,
-  document_number TEXT,
-  access_key TEXT UNIQUE,
-  role TEXT DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN', 'MANAGER')),
-  language TEXT DEFAULT 'pt',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. TABELA: CATEGORIES
-CREATE TABLE IF NOT EXISTS public.categories (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  color TEXT DEFAULT '#10b981',
-  icon TEXT DEFAULT 'Tag',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. TABELA: TRANSACTIONS
-CREATE TABLE IF NOT EXISTS public.transactions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.users(id) ON DELETE SET NULL, 
-  company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
-  category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
-  category TEXT, 
-  description TEXT NOT NULL,
-  amount NUMERIC NOT NULL,
-  type TEXT CHECK (type IN ('INCOME', 'EXPENSE')),
-  status TEXT DEFAULT 'PAID' CHECK (status IN ('PAID', 'PENDING', 'OVERDUE')),
-  cost_type TEXT DEFAULT 'VARIABLE',
-  scope TEXT DEFAULT 'BUSINESS',
-  date DATE DEFAULT CURRENT_DATE,
-  due_date DATE,
-  is_recurring BOOLEAN DEFAULT FALSE,
-  installment_current INTEGER, 
-  installment_total INTEGER, 
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. TABELA: CHAT MESSAGES
-CREATE TABLE IF NOT EXISTS public.chat_messages (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-  role TEXT,
-  content TEXT NOT NULL,
-  timestamp BIGINT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 7. TABELAS NFSe
-CREATE TABLE IF NOT EXISTS public.nfse_config (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE UNIQUE,
-  im TEXT,
-  rps_series TEXT DEFAULT '1',
-  last_rps_number INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.nfse_clients (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  doc_number TEXT NOT NULL,
-  email TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- DESABILITAR RLS PARA TESTES RÁPIDOS
-ALTER TABLE public.companies DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.categories DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_messages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nfse_config DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nfse_clients DISABLE ROW LEVEL SECURITY;
-
-NOTIFY pgrst, 'reload schema';
-`;
-
-  useEffect(() => {
-    fetchAdminData();
-  }, [currentUser]);
+  useEffect(() => { fetchAdminData(); }, [currentUser]);
 
   const fetchAdminData = async () => {
     setIsLoading(true);
     try {
-      const { data: u } = await supabase.from('users').select('*').eq('company_id', currentUser.company_id);
-      const { data: c } = await supabase.from('companies').select('*').eq('id', currentUser.company_id);
-      const { data: cat } = await supabase.from('categories').select('*').eq('company_id', currentUser.company_id);
-      setUsers(u || []);
-      setCompanies(c || []);
-      setCategories(cat || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
+      const [uRes, cRes, catRes] = await Promise.all([
+        supabase.from('users').select('*').eq('company_id', currentUser.company_id),
+        supabase.from('companies').select('*').eq('id', currentUser.company_id),
+        supabase.from('categories').select('*').eq('company_id', currentUser.company_id)
+      ]);
+      setUsers(uRes.data || []);
+      setCompanies(cRes.data || []);
+      setCategories(catRes.data || []);
+    } catch (e) { console.error(e); }
+    finally { setIsLoading(false); }
   };
 
   const handleUnlockMaster = (e: React.FormEvent) => {
     e.preventDefault();
-    if (masterPass === '2298R@bnet') {
-      setIsMasterUnlocked(true);
-      setMasterPass('');
-    } else {
-      alert("Senha Master incorreta. Operação cancelada.");
-      setMasterPass('');
-    }
+    if (masterPass === '2298R@bnet') { setIsMasterUnlocked(true); setMasterPass(''); } 
+    else { alert("Senha mestre inválida."); setMasterPass(''); }
   };
 
-  const handleDownloadSQL = () => {
-    const blob = new Blob([FULL_SQL_SCRIPT], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'finanai_full_setup.sql';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    alert("Script SQL gerado com sucesso! Use-o no SQL Editor do Supabase.");
-  };
+  // --- INFRASTRUCTURE ACTIONS ---
 
-  const handleClearTransactions = async () => {
-    const confirmText = "LIMPAR";
-    const userInput = prompt(`AVISO DE LIMPEZA\nDigite "${confirmText}" para apagar TODOS os lançamentos da empresa:`);
-    if (userInput !== confirmText) return;
-
+  const handleWipeTransactions = async () => {
+    if (!confirm("⚠️ CUIDADO: Isso apagará TODO o histórico financeiro da empresa. Esta ação é irreversível. Deseja continuar?")) return;
+    
     setIsLoading(true);
     try {
-      const { error } = await supabase.from('transactions').delete().eq('company_id', currentUser.company_id);
-      if (error) throw error;
-      alert("Operação concluída: Todos os lançamentos foram apagados.");
-      fetchData();
+      console.log(`[Admin] Wiping transactions for company: ${currentUser.company_id}`);
+      await FinancialService.wipeTransactions(currentUser.company_id);
+      
+      alert("Sucesso: Histórico de transações limpo.");
+      await fetchData();
     } catch (e: any) {
-      alert("Erro ao limpar dados: " + formatSupabaseError(e));
+      console.error("[Admin] Wipe failed:", e);
+      alert("Erro ao limpar: " + formatSupabaseError(e));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleImmediateMasterDelete = async () => {
-    const confirmText = "DELETAR TUDO";
-    const userInput = prompt(`ZONA DE PERIGO\nDigite "${confirmText}" para apagar a empresa e todos os dados vinculados AGORA:`);
-    if (userInput !== confirmText) return;
+  const handleMasterReset = async () => {
+    const company = companies[0];
+    const confirmation = prompt(`☢️ RESET MASTER: Digite o nome da empresa "${company?.name}" para confirmar a DESTRUIÇÃO TOTAL dos dados:`);
+    
+    if (confirmation !== company?.name) {
+      alert("Confirmação inválida. Operação cancelada.");
+      return;
+    }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.from('companies').delete().eq('id', currentUser.company_id);
-      if (error) throw error;
-      alert("Conta encerrada com sucesso. Você será desconectado.");
-      localStorage.removeItem('finanai_session_v3');
+      console.log(`[Admin] Master Reset initiated for company: ${currentUser.company_id}`);
+      await FinancialService.wipeAllCompanyData(currentUser.company_id, currentUser.id);
+      
+      alert("Reset Master concluído. O sistema foi restaurado para o estado inicial.");
       window.location.reload();
     } catch (e: any) {
-      alert("Erro crítico: " + formatSupabaseError(e));
+      console.error("[Admin] Master Reset failed:", e);
+      alert("Falha no Reset: " + formatSupabaseError(e));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUpdateUser = async (e: React.FormEvent) => {
+  // --- CATEGORY ACTIONS ---
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingUser?.id) return;
+    if (!editingCategory?.name) return;
+    
     setIsLoading(true);
     try {
-        const payload: any = { username: editingUser.username, role: editingUser.role };
-        if (editPassword) payload.password = editPassword;
+      const payload = {
+        ...editingCategory,
+        company_id: currentUser.company_id,
+        color: editingCategory.color || '#6366f1',
+        icon: editingCategory.icon || 'Tag'
+      };
 
-        const { error } = await supabase.from('users').update(payload).eq('id', editingUser.id);
-        if (error) throw error;
-        
-        alert("Operação concluída: Usuário atualizado com sucesso.");
-        setShowEditUserModal(false);
-        setEditPassword('');
-        fetchAdminData();
+      const { error } = editingCategory.id 
+        ? await supabase.from('categories').update(payload).eq('id', editingCategory.id)
+        : await supabase.from('categories').insert([payload]);
+
+      if (error) throw error;
+      
+      setShowCategoryModal(false);
+      setEditingCategory(null);
+      fetchAdminData();
     } catch (e: any) {
-        alert("Erro ao atualizar: " + formatSupabaseError(e));
+      alert("Erro: " + formatSupabaseError(e));
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const isOwner = companies.find(c => c.id === currentUser.company_id)?.owner_id === currentUser.id;
+  const handleDeleteCategory = async (id: string) => {
+    if (!confirm("Excluir esta categoria? Isso pode afetar a visualização de transações antigas.")) return;
+    
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('categories').delete().eq('id', id);
+      if (error) throw error;
+      fetchAdminData();
+    } catch (e: any) {
+      alert("Erro: " + formatSupabaseError(e));
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       
-      {/* HEADER */}
-      <div className="bg-indigo-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
-         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-[80px]"></div>
-         <div className="relative z-10 flex items-center justify-between">
-            <div className="flex items-center gap-5">
-               <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20">
-                  <Shield size={28} />
+      {/* HEADER: CONFIGURADOR */}
+      <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
+         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px]"></div>
+         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
+            <div className="flex items-center gap-6">
+               <div className="w-16 h-16 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl flex items-center justify-center border border-white/20 shadow-xl">
+                  <Settings size={32} className="text-white" />
                </div>
                <div>
-                  <h2 className="text-xl font-black tracking-tight">{currentUser.role === 'MANAGER' ? 'Gestão Master' : 'Painel Admin'}</h2>
-                  <p className="text-indigo-200 text-[10px] font-bold uppercase tracking-widest mt-1">Configurações de Infraestrutura</p>
+                  <h2 className="text-3xl font-black tracking-tight uppercase">Configurador <span className="text-indigo-400 text-sm align-top">PRO</span></h2>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.3em] mt-1">Terminal de Controle de Infraestrutura & Setup</p>
                </div>
+            </div>
+            <div className="px-5 py-3 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-sm">
+                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Status do Núcleo</p>
+                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div><span className="text-xs font-black text-emerald-400 uppercase">Sistema Ativo</span></div>
             </div>
          </div>
       </div>
 
-      {/* TABS */}
-      <div className="flex p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-lg overflow-x-auto">
+      <div className="flex p-2 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-x-auto gap-2">
          {[
-            { id: 'USERS', label: 'Usuários', icon: Users },
-            { id: 'SYSTEM', label: 'Conexão DB', icon: Server },
-            { id: 'MASTER', label: 'Console Master', icon: Terminal }
+            { id: 'USERS', label: 'Terminais', icon: Users },
+            { id: 'SYSTEM', label: 'Setup Banco', icon: Database },
+            { id: 'CATEGORIES', label: 'Dicionário', icon: Tags },
+            { id: 'MASTER', label: 'Console Master', icon: Cpu }
          ].map(tab => (
-            <button
-               key={tab.id}
-               onClick={() => setActiveTab(tab.id as any)}
-               className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                  activeTab === tab.id ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-               }`}
-            >
-               <tab.icon size={14} /> {tab.label}
-            </button>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex-1 min-w-[140px] flex items-center justify-center gap-3 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-2xl scale-[1.02]' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><tab.icon size={16} /> {tab.label}</button>
          ))}
       </div>
 
-      {/* CONTENT AREA */}
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-8 shadow-xl min-h-[400px]">
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-200 dark:border-slate-800 p-10 shadow-2xl min-h-[500px]">
          
          {activeTab === 'USERS' && (
-            <div className="space-y-4">
-               <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest">Controle de Terminais</h3>
-               <div className="space-y-2">
+            <div className="space-y-8 animate-in fade-in">
+               <div className="flex items-center justify-between">
+                  <div><h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-3"><Users size={20} className="text-indigo-500" /> Gestão de Acessos</h3><p className="text-xs text-slate-400 font-bold mt-1">Terminais autorizados para esta empresa</p></div>
+               </div>
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {users.map(u => (
-                     <div key={u.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                        <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center font-bold text-xs uppercase">{u.username.substring(0,2)}</div>
-                           <div>
-                              <p className="text-sm font-bold text-slate-800 dark:text-white">{u.username}</p>
-                              <p className="text-[10px] text-slate-400 font-bold uppercase">{u.role} • {new Date(u.created_at).toLocaleDateString()}</p>
-                           </div>
+                     <div key={u.id} className="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center font-black text-indigo-600 border border-slate-200 dark:border-slate-700 shadow-sm">{(u.username || 'U').substring(0,2).toUpperCase()}</div>
+                           <div><p className="text-sm font-black text-slate-800 dark:text-white">{u.username}</p><span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>{u.role}</span></div>
                         </div>
-                        <button onClick={() => { setEditingUser(u); setShowEditUserModal(true); }} className="p-2 text-slate-400 hover:text-indigo-500 bg-white dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700 transition-all"><Edit size={16}/></button>
+                        <button className="p-3 text-slate-400 hover:text-indigo-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700"><Edit size={18}/></button>
                      </div>
                   ))}
                </div>
@@ -310,105 +207,138 @@ NOTIFY pgrst, 'reload schema';
          )}
 
          {activeTab === 'SYSTEM' && (
-             <div className="space-y-6 animate-in fade-in">
-                 <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-2"><Server size={16}/> Configurações de Conexão</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Database Project URL</label>
-                         <input className="w-full bg-white dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold mt-1" value={sysConfig.dbUrl} onChange={e => setSysConfig({...sysConfig, dbUrl: e.target.value})} />
-                     </div>
-                     <div className="p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Anon Public Key</label>
-                         <input type="password" className="w-full bg-white dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold mt-1" value={sysConfig.dbKey} onChange={e => setSysConfig({...sysConfig, dbKey: e.target.value})} />
-                     </div>
+             <div className="space-y-8 animate-in fade-in max-w-4xl mx-auto">
+                 <div className="text-center space-y-2 mb-10"><div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner border border-indigo-100"><Database size={40} /></div><h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Setup de Conexão</h3><p className="text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">Configuração de Gateway Supabase</p></div>
+                 <div className="grid grid-cols-1 gap-6">
+                    <div className="p-8 bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4">Project Endpoint URL</label>
+                        <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 dark:text-white" value={sysConfig.dbUrl} onChange={e => setSysConfig({...sysConfig, dbUrl: e.target.value})} placeholder="https://..." />
+                    </div>
+                    <div className="p-8 bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4">Anon Public Key</label>
+                        <input type="password" className="w-full bg-white dark:bg-slate-900 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 dark:text-white" value={sysConfig.dbKey} onChange={e => setSysConfig({...sysConfig, dbKey: e.target.value})} placeholder="eyJ..." />
+                    </div>
                  </div>
-                 <button onClick={() => { updateSupabaseConfig(sysConfig.dbUrl, sysConfig.dbKey); alert("Operação concluída: Credenciais de banco atualizadas localmente."); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-3 rounded-xl font-black uppercase text-xs shadow-md">Atualizar Conexões</button>
+                 <button onClick={() => { updateSupabaseConfig(sysConfig.dbUrl, sysConfig.dbKey); alert("Infraestrutura Atualizada!"); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3"><Save size={18} /> Salvar Setup de Conexão</button>
+             </div>
+         )}
+
+         {activeTab === 'CATEGORIES' && (
+             <div className="space-y-8 animate-in fade-in">
+                 <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-3"><Tags size={20} className="text-indigo-500" /> Dicionário de Categorias</h3>
+                        <p className="text-xs text-slate-400 font-bold">Gerencie os marcadores de transação</p>
+                    </div>
+                    <button onClick={() => { setEditingCategory({}); setShowCategoryModal(true); }} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl hover:scale-105 transition-all"><Plus size={16}/> Nova Categoria</button>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                     {categories.map(cat => (
+                         <div key={cat.id} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 flex items-center justify-between group">
+                             <div className="flex items-center gap-4">
+                                 <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg" style={{ backgroundColor: cat.color }}>
+                                     <Activity size={20} />
+                                 </div>
+                                 <div>
+                                     <p className="text-sm font-black text-slate-800 dark:text-white">{cat.name}</p>
+                                     <p className="text-[10px] font-bold text-slate-400 uppercase">{cat.icon}</p>
+                                 </div>
+                             </div>
+                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <button onClick={() => { setEditingCategory(cat); setShowCategoryModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700"><Edit size={16}/></button>
+                                 <button onClick={() => handleDeleteCategory(cat.id)} className="p-2 text-slate-400 hover:text-rose-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700"><Trash2 size={16}/></button>
+                             </div>
+                         </div>
+                     ))}
+                 </div>
              </div>
          )}
 
          {activeTab === 'MASTER' && (
-             <div className="animate-in fade-in">
+             <div className="animate-in fade-in max-w-2xl mx-auto">
                  {!isMasterUnlocked ? (
-                     <div className="max-w-md mx-auto py-12 text-center">
-                         <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner border border-rose-100 dark:border-rose-900/30"><Lock size={40}/></div>
-                         <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Console de Segurança (Master)</h3>
-                         <p className="text-xs text-slate-400 mt-2 mb-8">Digite a senha para acessar ferramentas de infraestrutura e limpeza.</p>
+                     <div className="py-12 text-center">
+                         <div className="w-24 h-24 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border border-rose-100 shadow-inner"><Lock size={48}/></div>
+                         <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Security Console</h3>
+                         <p className="text-xs text-slate-400 mt-2 mb-10 font-bold uppercase tracking-widest">Acesso Restrito a Operações Críticas</p>
                          <form onSubmit={handleUnlockMaster} className="space-y-4">
-                             <input 
-                                type="password" 
-                                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-center text-sm font-black outline-none focus:ring-4 focus:ring-rose-500/10 tracking-[0.5em]" 
-                                placeholder="••••••••" 
-                                value={masterPass}
-                                onChange={e => setMasterPass(e.target.value)}
-                             />
-                             <button className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-4 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 hover:bg-rose-600 dark:hover:bg-rose-500 transition-all shadow-lg">
-                                 <Unlock size={16}/> Desbloquear Console
-                             </button>
+                             <input type="password" className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 rounded-3xl p-6 text-center text-2xl font-black outline-none tracking-[0.8em] text-slate-900 dark:text-white" placeholder="••••" value={masterPass} onChange={e => setMasterPass(e.target.value)} />
+                             <button className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-3xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 hover:bg-rose-600 transition-all">Desbloquear Console</button>
                          </form>
                      </div>
                  ) : (
-                     <div className="space-y-8 animate-in slide-in-from-top-4">
-                         <div className="bg-indigo-50 dark:bg-indigo-950/30 p-8 rounded-3xl border border-indigo-100 dark:border-indigo-900/30">
-                             <div className="flex items-center justify-between mb-6">
-                                 <div>
-                                     <h3 className="text-sm font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                                        <Database size={20} /> Script SQL de Montagem
-                                     </h3>
-                                     <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1">Gere o código para montar todo o banco Supabase em um novo projeto.</p>
-                                 </div>
-                                 <button onClick={handleDownloadSQL} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 shadow-lg transition-all">
-                                     <Download size={14}/> Baixar Script SQL
+                     <div className="space-y-8 animate-in zoom-in-95">
+                         <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl text-white relative overflow-hidden">
+                             <div className="absolute top-0 right-0 p-8 opacity-10"><CloudLightning size={100} /></div>
+                             <h4 className="text-lg font-black uppercase tracking-[0.2em] mb-4 flex items-center gap-3"><Terminal size={24} className="text-indigo-400" /> Operações de Emergência</h4>
+                             <p className="text-xs text-slate-400 mb-8 font-bold uppercase">Utilize com extrema cautela. Estas ações são definitivas.</p>
+                             
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                                 <button onClick={handleWipeTransactions} disabled={isLoading} className="p-6 bg-white/5 border border-white/10 rounded-3xl hover:bg-white/10 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
+                                     {isLoading ? <Loader2 className="animate-spin text-amber-400" size={24}/> : <Eraser className="text-amber-400" size={24} />}
+                                     <div>
+                                         <p className="text-xs font-black uppercase tracking-widest">Limpar Transações</p>
+                                         <p className="text-[10px] text-slate-500 mt-1 uppercase">Zerar histórico financeiro</p>
+                                     </div>
+                                 </button>
+                                 <button onClick={handleMasterReset} disabled={isLoading} className="p-6 bg-rose-500/10 border border-rose-500/30 rounded-3xl hover:bg-rose-500/20 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
+                                     {isLoading ? <Loader2 className="animate-spin text-rose-500" size={24}/> : <Skull className="text-rose-500" size={24} />}
+                                     <div>
+                                         <p className="text-xs font-black uppercase tracking-widest text-rose-500">Reset Master</p>
+                                         <p className="text-[10px] text-rose-400/50 mt-1 uppercase">Destruição total da base</p>
+                                     </div>
                                  </button>
                              </div>
-                             <div className="bg-slate-900 rounded-2xl p-5 overflow-hidden border border-slate-800 shadow-inner font-mono text-[10px] text-emerald-500">
-                                 -- Script de criação de tabelas, índices e relações.<br/>
-                                 -- Inclui transações, categorias e módulo fiscal.
+                             <div className="mt-8 pt-8 border-t border-white/10 text-center">
+                                 <button onClick={() => setIsMasterUnlocked(false)} className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors">Encerrar Sessão Master</button>
                              </div>
                          </div>
-
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                             <div className="bg-amber-50 dark:bg-amber-950/20 p-8 rounded-[2.5rem] border border-amber-200 dark:border-amber-800/30">
-                                 <h3 className="text-sm font-black text-amber-600 uppercase tracking-widest flex items-center gap-2 mb-4"><Eraser size={18} /> Limpar Lançamentos</h3>
-                                 <p className="text-xs text-amber-800 dark:text-amber-400 font-medium mb-6 leading-relaxed">Apaga todas as transações financeiras. Preserva usuários e cadastros.</p>
-                                 <button onClick={handleClearTransactions} disabled={isLoading} className="w-full bg-amber-500 hover:bg-amber-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg flex items-center justify-center gap-2 transition-all">
-                                    {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Eraser size={16} />} Executar Limpeza
-                                 </button>
-                             </div>
-
-                             <div className="bg-rose-50 dark:bg-rose-950/20 p-8 rounded-[2.5rem] border border-rose-200 dark:border-rose-800/30">
-                                 <h3 className="text-sm font-black text-rose-600 uppercase tracking-widest flex items-center gap-2 mb-4"><Skull size={18} /> Master Reset</h3>
-                                 <p className="text-xs text-rose-800 dark:text-rose-400 font-medium mb-6 leading-relaxed">Destruição total da empresa no banco de dados. Irreversível.</p>
-                                 <button onClick={handleImmediateMasterDelete} disabled={isLoading} className="w-full bg-rose-600 hover:bg-rose-700 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg flex items-center justify-center gap-2 transition-all">
-                                    {isLoading ? <Loader2 size={16} className="animate-spin" /> : <AlertOctagon size={16} />} Apagar Tudo Agora
-                                 </button>
-                             </div>
-                         </div>
-                         <div className="text-center pt-4"><button onClick={() => setIsMasterUnlocked(false)} className="text-[10px] font-black text-slate-400 hover:text-rose-500 uppercase tracking-widest transition-colors">Bloquear Console</button></div>
                      </div>
                  )}
              </div>
          )}
       </div>
 
-      {/* MODAL EDIT USER */}
-      {showEditUserModal && editingUser && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-100 dark:border-slate-800">
-                  <button onClick={() => setShowEditUserModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"><X size={20} /></button>
-                  <div className="mb-6 flex items-center gap-4">
-                      <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center"><Edit size={24} /></div>
-                      <h3 className="text-xl font-black">Editar Usuário</h3>
+      {/* CATEGORY MODAL */}
+      {showCategoryModal && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800">
+                  <button onClick={() => setShowCategoryModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+                  <div className="mb-8 flex items-center gap-5">
+                      <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 rounded-3xl flex items-center justify-center"><Tags size={32} /></div>
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white">Dicionário</h3>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configuração de Marcador</p>
+                      </div>
                   </div>
-                  <form onSubmit={handleUpdateUser} className="space-y-4">
-                      <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm font-bold" value={editingUser.username} onChange={e => setEditingUser({...editingUser, username: e.target.value})} required />
-                      <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm font-bold" value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as any})}>
-                          <option value="USER">Padrão</option>
-                          <option value="ADMIN">Admin</option>
-                          <option value="MANAGER">Manager</option>
-                      </select>
-                      <input type="password" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm font-bold" placeholder="Nova Senha (opcional)" value={editPassword} onChange={e => setEditPassword(e.target.value)} />
-                      <button disabled={isLoading} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-3.5 rounded-xl font-black uppercase text-xs shadow-lg">
-                          {isLoading ? <Loader2 className="animate-spin" size={16}/> : 'Salvar Alterações'}
+                  <form onSubmit={handleSaveCategory} className="space-y-6">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nome da Categoria</label>
+                        <input required className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-800 dark:text-white outline-none" value={editingCategory?.name || ''} onChange={e => setEditingCategory({...editingCategory, name: e.target.value})} placeholder="Ex: Assinaturas SaaS" />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2"><Palette size={12}/> Cor</label>
+                            <input type="color" className="w-full h-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-1 cursor-pointer" value={editingCategory?.color || '#6366f1'} onChange={e => setEditingCategory({...editingCategory, color: e.target.value})} />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2"><Activity size={12}/> Ícone</label>
+                            <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-xs font-bold text-slate-800 dark:text-white outline-none" value={editingCategory?.icon || 'Tag'} onChange={e => setEditingCategory({...editingCategory, icon: e.target.value})}>
+                                <option value="Tag">Tag</option>
+                                <option value="ShoppingBag">Shopping</option>
+                                <option value="Utensils">Alimentação</option>
+                                <option value="Car">Transporte</option>
+                                <option value="Zap">Operacional</option>
+                                <option value="Smartphone">Digital</option>
+                                <option value="Landmark">Banco</option>
+                            </select>
+                          </div>
+                      </div>
+
+                      <button disabled={isLoading} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3">
+                          {isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Salvar Marcador
                       </button>
                   </form>
               </div>

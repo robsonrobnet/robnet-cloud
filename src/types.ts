@@ -92,7 +92,8 @@ export enum AppView {
   NFSE = 'NFSE',
   CHAT = 'CHAT',
   ADMIN = 'ADMIN',
-  SETTINGS = 'SETTINGS'
+  SETTINGS = 'SETTINGS',
+  STRIPE = 'STRIPE'
 }
 
 export interface NfseClient {
@@ -120,6 +121,9 @@ export interface NfseService {
   description: string;
   aliquot: number;
   iss_retained: boolean;
+  suggested_nbs?: string;
+  aliq_ibs?: number;
+  aliq_cbs?: number;
 }
 
 export interface NfseRps {
@@ -137,6 +141,11 @@ export interface NfseRps {
   nfe_number?: number;
   nfe_verification_code?: string;
   transmission_status: 'DRAFT' | 'TRANSMITTING' | 'AUTHORIZED' | 'REJECTED';
+  // Campos Reforma 2026
+  nbs?: string;
+  valor_inicial_cobrado?: number;
+  valor_final_cobrado?: number;
+  exigibilidade_suspensa?: boolean;
 }
 
 export interface NfseConfig {

@@ -10,18 +10,38 @@ export interface Attachment {
 }
 
 const SYSTEM_PROMPT = `
-    ## 🤖 PERFIL: GERENTE FINANCEIRO SÊNIOR
-    Seu objetivo é o controle rigoroso de fluxo de caixa e gestão contábil.
+    ## 🤖 PERFIL: GERENTE FINANCEIRO SÊNIOR & ESPECIALISTA EM OCR
+    Seu objetivo é o controle rigoroso de fluxo de caixa, gestão contábil e extração precisa de dados de documentos.
     
-    ## 📏 DIRETRIZES
+    ## 📸 DIRETRIZES DE OCR (RECIBOS E NOTAS)
+    Ao receber imagens ou PDFs de recibos, cupons fiscais ou faturas:
+    - Extraia o valor total ('amount') com precisão decimal.
+    - Identifique a data da transação ('date') no formato ISO YYYY-MM-DD.
+    - Identifique o nome do estabelecimento ou emissor para a 'description'.
+    - Classifique automaticamente em uma 'category' lógica (ex: Alimentação, Transporte, Suprimentos).
+    - Defina 'type' como 'EXPENSE' para recibos de compra e 'INCOME' para comprovantes de recebimento.
+    - Defina 'status' como 'PAID' para recibos de compras já realizadas.
+    - Defina 'scope' como 'BUSINESS' (PJ) ou 'PERSONAL' (PF) baseado no contexto ou nome na nota.
+
+    ## 📏 DIRETRIZES GERAIS
     - Respostas concisas e estruturadas.
     - Reconheça 'PAID' como liquidado.
-    - Gere JSON para transações e atualizações.
+    - Gere JSON para transações, atualizações e novos clientes.
 
     ## 📝 FORMATO DE SAÍDA (JSON OBRIGATÓRIO)
     \`\`\`json
     {
-      "extractedTransactions": [ ... ],
+      "extractedTransactions": [ 
+        {
+          "description": "string",
+          "amount": number,
+          "date": "YYYY-MM-DD",
+          "type": "EXPENSE" | "INCOME",
+          "category": "string",
+          "status": "PAID" | "PENDING",
+          "scope": "BUSINESS" | "PERSONAL"
+        }
+      ],
       "updates": [ { "id": "uuid", "fields": { "status": "PAID" } } ],
       "deletions": [ "uuid" ],
       "extractedClients": [ ... ]
@@ -47,7 +67,7 @@ export const analyzeFinancialInput = async (
   extractedClients?: Partial<NfseClient>[];
 }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const parts: any[] = [{ text: input }];
     
     if (dbContext) parts.push({ text: `[Contexto DB]: ${dbContext}` });
@@ -61,7 +81,7 @@ export const analyzeFinancialInput = async (
     const contents = [...chatHistory, { role: 'user', parts }];
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       contents,
       config: { systemInstruction: SYSTEM_PROMPT }
     });
@@ -98,7 +118,7 @@ export const analyzeFinancialInput = async (
  */
 export const testGeminiConnection = async (apiKey: string): Promise<{ success: boolean; message?: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: "test" });
     return { success: true };
   } catch (error: any) {
