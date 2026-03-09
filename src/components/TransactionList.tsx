@@ -5,10 +5,11 @@ import {
   Search, Trash2, Calendar, Tag, ShoppingBag, Coffee, Car, Home, 
   Heart, Zap, Gamepad2, Utensils, Landmark, Wallet, CreditCard, 
   Coins, HeartPulse, Smartphone, Briefcase, User, Clock, AlertTriangle, Box, ArrowUpCircle, ArrowDownCircle,
-  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays
+  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays, Camera, Loader2
 } from 'lucide-react';
 import { supabase, formatSupabaseError } from '../lib/supabase';
 import { FinancialService } from '../services/financialService';
+import { analyzeFinancialInput } from '../services/geminiService';
 import { List, RowComponentProps, ListImperativeAPI } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 
@@ -27,7 +28,7 @@ interface TransactionListProps {
   t: any;
 }
 
-const TransactionList: React.FC<TransactionListProps> = ({ transactions, categories, companies, onDelete, onUpdate, t }) => {
+const TransactionList: React.FC<TransactionListProps> = ({ transactions, categories, companies, onDelete, onAdd, onUpdate, t }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | TransactionType>('ALL');
   const [scopeFilter, setScopeFilter] = useState<'ALL' | TransactionScope>('ALL');
@@ -39,6 +40,10 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
   
   // Action Menu State
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+
+  // Scanning State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isScanning, setIsScanning] = useState(false);
 
   // 1. Filter Logic
   const filtered = useMemo(() => {
@@ -84,6 +89,11 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
 
   const handleQuickSettleInModal = async () => {
     if (!editingTransaction) return;
+    if (editingTransaction.id === 'new') {
+        // If it's a new scanned transaction, just update the status in state
+        setEditingTransaction({ ...editingTransaction, status: 'PAID' });
+        return;
+    }
     try {
         await FinancialService.updateTransaction(editingTransaction.id, { 
             status: 'PAID',
@@ -122,18 +132,81 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         category_id: editingTransaction.category_id || undefined,
         category: editingTransaction.category,
         scope: editingTransaction.scope || 'BUSINESS', 
-        company_id: editingTransaction.company_id,
+        company_id: editingTransaction.company_id || companies[0]?.id,
         is_recurring: editingTransaction.is_recurring || false,
         installment_current: editingTransaction.installment_current || undefined,
-        installment_total: editingTransaction.installment_total || undefined
+        installment_total: editingTransaction.installment_total || undefined,
+        type: editingTransaction.type
       };
 
-      await FinancialService.updateTransaction(editingTransaction.id, payload);
+      if (editingTransaction.id === 'new') {
+          await onAdd(payload);
+      } else {
+          await FinancialService.updateTransaction(editingTransaction.id, payload);
+      }
+      
       setIsEditModalOpen(false);
       setEditingTransaction(null);
       onUpdate();
     } catch (e) {
-      alert("Erro ao salvar edição: " + formatSupabaseError(e));
+      alert("Erro ao salvar: " + formatSupabaseError(e));
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        const attachment = { mimeType: file.type || 'image/jpeg', data: base64Data };
+        
+        const result = await analyzeFinancialInput(
+          "Extraia os dados deste recibo/comprovante para adicionar uma nova transação.", 
+          attachment, 
+          'pt'
+        );
+
+        if (result.extractedTransactions && result.extractedTransactions.length > 0) {
+          const t = result.extractedTransactions[0];
+          
+          // Find matching category
+          let resolvedCategoryId = undefined;
+          if (t.category) {
+              const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
+              if (found) resolvedCategoryId = found.id;
+          }
+
+          setEditingTransaction({
+            id: 'new',
+            user_id: '',
+            company_id: companies[0]?.id || '',
+            description: t.description || 'Nova Transação',
+            amount: t.amount || 0,
+            type: t.type || 'EXPENSE',
+            status: t.status || 'PAID',
+            category: t.category || 'Outros',
+            category_id: resolvedCategoryId,
+            scope: t.scope || 'BUSINESS',
+            date: t.date || new Date().toISOString().split('T')[0],
+            due_date: t.date || new Date().toISOString().split('T')[0]
+          });
+          setIsEditModalOpen(true);
+        } else {
+          alert("Não foi possível extrair os dados do recibo. Tente novamente com uma imagem mais nítida.");
+        }
+        setIsScanning(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+    } catch (error) {
+      console.error("Error scanning receipt:", error);
+      alert("Erro ao processar o recibo.");
+      setIsScanning(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -270,11 +343,15 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                
                <div className="flex items-center gap-4 mb-6">
                   <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-2xl flex items-center justify-center">
-                     <Edit size={24} />
+                     {editingTransaction.id === 'new' ? <Camera size={24} /> : <Edit size={24} />}
                   </div>
                   <div>
-                     <h3 className="text-lg font-black text-slate-800 dark:text-white">Editar Lançamento</h3>
-                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Ajuste os detalhes financeiros</p>
+                     <h3 className="text-lg font-black text-slate-800 dark:text-white">
+                       {editingTransaction.id === 'new' ? 'Novo Lançamento (Escaneado)' : 'Editar Lançamento'}
+                     </h3>
+                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">
+                       {editingTransaction.id === 'new' ? 'Revise os dados extraídos pela IA' : 'Ajuste os detalhes financeiros'}
+                     </p>
                   </div>
                </div>
 
@@ -298,21 +375,26 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                   
                   <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label><input type="number" step="0.01" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.amount} onChange={e => setEditingTransaction({...editingTransaction, amount: Number(e.target.value)})} required /></div>
+                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.type} onChange={e => setEditingTransaction({...editingTransaction, type: e.target.value as any})}><option value="EXPENSE">Despesa (-)</option><option value="INCOME">Receita (+)</option></select></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.status} onChange={e => setEditingTransaction({...editingTransaction, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select></div>
+                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.category_id || ''} onChange={e => { const cat = categories.find(c => c.id === e.target.value); setEditingTransaction({ ...editingTransaction, category_id: e.target.value, category: cat ? cat.name : 'Outros' }); }}><option value="">Selecione...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label><input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.date} onChange={e => setEditingTransaction({...editingTransaction, date: e.target.value})} required /></div>
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vencimento</label><input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.due_date || editingTransaction.date} onChange={e => setEditingTransaction({...editingTransaction, due_date: e.target.value})} /></div>
                   </div>
-
-                  <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.category_id || ''} onChange={e => { const cat = categories.find(c => c.id === e.target.value); setEditingTransaction({ ...editingTransaction, category_id: e.target.value, category: cat ? cat.name : 'Outros' }); }}><option value="">Selecione...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   
                   <div className="pt-2 flex flex-col gap-2">
                      {editingTransaction.status !== 'PAID' && (
                         <button type="button" onClick={handleQuickSettleInModal} className={`w-full py-3 rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all ${editingTransaction.type === 'INCOME' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900 dark:text-rose-300'}`}><CheckCircle2 size={16} /> {editingTransaction.type === 'INCOME' ? 'Confirmar Recebimento Agora' : 'Confirmar Pagamento Agora'}</button>
                      )}
-                     <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2"><Save size={16} /> Salvar Alterações</button>
+                     <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2">
+                        <Save size={16} /> {editingTransaction.id === 'new' ? 'Confirmar e Adicionar' : 'Salvar Alterações'}
+                     </button>
                   </div>
                </form>
             </div>
@@ -326,7 +408,28 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Extrato de Lançamentos</h2>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Gerenciamento completo de entradas e saídas</p>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 items-center">
+               <input 
+                 type="file" 
+                 ref={fileInputRef} 
+                 className="hidden" 
+                 accept="image/*,.pdf" 
+                 onChange={handleFileSelect} 
+               />
+               <button 
+                 onClick={() => {
+                   if (fileInputRef.current) {
+                     fileInputRef.current.setAttribute('capture', 'environment');
+                     fileInputRef.current.click();
+                     setTimeout(() => fileInputRef.current?.removeAttribute('capture'), 1000);
+                   }
+                 }}
+                 disabled={isScanning}
+                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+               >
+                 {isScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                 {isScanning ? 'Analisando...' : 'Escanear Recibo'}
+               </button>
                <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex">
                   <button onClick={() => setScopeFilter('ALL')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'ALL' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-400'}`}>Tudo</button>
                   <button onClick={() => setScopeFilter('BUSINESS')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'BUSINESS' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>Empresas</button>
