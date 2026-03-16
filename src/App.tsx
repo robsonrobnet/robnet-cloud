@@ -358,7 +358,7 @@ const App: React.FC = () => {
                 />
               </div>
             : view === AppView.ADMIN ? <AdminSettings currentUser={currentUser} t={t} language={language} onLanguageChange={setLanguage} fetchData={fetchData} />
-            : <Dashboard transactions={filteredTransactions} summary={summary} categories={categories} t={t} />}
+            : <Dashboard transactions={transactions} currentMonth={currentDate} categories={categories} t={t} />}
           </div>
         </div>
       </main>

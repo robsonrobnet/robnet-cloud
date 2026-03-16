@@ -14,7 +14,7 @@ import { Transaction, FinancialSummary, Category, TransactionScope } from '../ty
 
 interface DashboardProps {
   transactions: Transaction[];
-  summary: FinancialSummary;
+  currentMonth: Date;
   categories: Category[];
   t: any;
 }
@@ -25,8 +25,36 @@ const COLORS_PALETTE = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#14b8a6', '#f97316', '#a855f7', '#db2777', '#0ea5e9'
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions = [], summary, categories = [], t }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, categories = [], t }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('ALL');
+
+  const currentMonthStr = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }, [currentMonth]);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => t.date.startsWith(currentMonthStr));
+  }, [transactions, currentMonthStr]);
+
+  const summary = useMemo(() => {
+    return filteredTransactions.reduce((acc, t) => {
+      const amount = Number(t.amount) || 0;
+      if (t.type === 'INCOME') {
+        acc.totalIncome += amount;
+        if (t.scope === 'BUSINESS') acc.businessIncome += amount;
+        else acc.personalIncome += amount;
+      } else {
+        acc.totalExpenses += amount;
+        if (t.scope === 'BUSINESS') acc.businessExpenses += amount;
+        else acc.personalExpenses += amount;
+      }
+      return acc;
+    }, {
+      totalIncome: 0, totalExpenses: 0, businessIncome: 0, businessExpenses: 0, personalIncome: 0, personalExpenses: 0, balance: 0
+    });
+  }, [filteredTransactions]);
 
   const getFilteredValues = () => {
     if (activeTab === 'BUSINESS') {
@@ -34,7 +62,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], summary, categ
         income: summary.businessIncome,
         expense: summary.businessExpenses,
         balance: summary.businessIncome - summary.businessExpenses,
-        transactions: transactions.filter(t => t.scope === 'BUSINESS')
+        transactions: filteredTransactions.filter(t => t.scope === 'BUSINESS')
       };
     }
     if (activeTab === 'PERSONAL') {
@@ -42,13 +70,62 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], summary, categ
         income: summary.personalIncome,
         expense: summary.personalExpenses,
         balance: summary.personalIncome - summary.personalExpenses,
-        transactions: transactions.filter(t => t.scope === 'PERSONAL')
+        transactions: filteredTransactions.filter(t => t.scope === 'PERSONAL')
       };
     }
-    return { income: summary.totalIncome, expense: summary.totalExpenses, balance: summary.balance, transactions };
+    return { 
+      income: summary.totalIncome, 
+      expense: summary.totalExpenses, 
+      balance: summary.totalIncome - summary.totalExpenses, 
+      transactions: filteredTransactions 
+    };
   };
 
   const viewData = getFilteredValues();
+
+  // Monthly Evolution (Last 6 months)
+  const monthlyEvolutionData = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1);
+      const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthName = d.toLocaleDateString('pt-BR', { month: 'short' });
+      
+      const monthTransactions = transactions.filter(t => t.date.startsWith(mStr));
+      const filteredMonthTransactions = activeTab === 'ALL' 
+        ? monthTransactions 
+        : monthTransactions.filter(t => t.scope === activeTab);
+
+      const income = filteredMonthTransactions
+        .filter(t => t.type === 'INCOME')
+        .reduce((sum, t) => sum + Number(t.amount), 0);
+      
+      const expense = filteredMonthTransactions
+        .filter(t => t.type === 'EXPENSE')
+        .reduce((sum, t) => sum + Number(t.amount), 0);
+
+      months.push({
+        name: monthName,
+        income,
+        expense,
+        balance: income - expense
+      });
+    }
+    return months;
+  }, [transactions, currentMonth, activeTab]);
+
+  const costTypeData = useMemo(() => {
+    const expenses = viewData.transactions.filter(t => t.type === 'EXPENSE');
+    const fixed = expenses.filter(t => t.cost_type === 'FIXED').reduce((sum, t) => sum + Number(t.amount), 0);
+    const variable = expenses.filter(t => t.cost_type === 'VARIABLE').reduce((sum, t) => sum + Number(t.amount), 0);
+    const undefined_costs = expenses.filter(t => !t.cost_type).reduce((sum, t) => sum + Number(t.amount), 0);
+
+    return [
+      { name: 'Fixo', value: fixed, color: '#f59e0b' },
+      { name: 'Variável', value: variable, color: '#3b82f6' },
+      { name: 'Não Def.', value: undefined_costs, color: '#94a3b8' }
+    ].filter(d => d.value > 0);
+  }, [viewData.transactions]);
 
   const trendData = useMemo(() => {
     if (viewData.transactions.length === 0) return [];
@@ -207,6 +284,73 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], summary, categ
 
       {/* Bento Grid Visualizations */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Monthly Evolution */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Evolução Mensal</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Comparativo de receitas e despesas (6 meses)</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Receitas</span></div>
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Despesas</span></div>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyEvolutionData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} tickFormatter={(value) => `R$ ${value}`} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expense" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Cost Type Distribution */}
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">Estrutura de Custos</h3>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Fixo vs Variável</p>
+          <div className="h-[250px] w-full relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={costTypeData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {costTypeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Total</span>
+              <span className="text-sm font-black text-slate-800 dark:text-white">R$ {viewData.expense.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+            </div>
+          </div>
+          <div className="mt-6 space-y-2">
+            {costTypeData.map((cat, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{cat.name}</span>
+                </div>
+                <span className="text-[10px] font-black text-slate-800 dark:text-white">R$ {cat.value.toLocaleString('pt-BR')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Spending Trends */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-8">
