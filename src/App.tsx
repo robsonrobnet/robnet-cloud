@@ -57,16 +57,28 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem('finanai_session_v3');
-    if (saved && saved !== "undefined") {
+    if (saved && saved.trim() !== "" && saved.trim() !== "undefined") {
       try {
         const parsed = JSON.parse(saved);
-        setCurrentUser(parsed);
-        setLanguage(parsed.language || 'pt');
-      } catch (e) { localStorage.removeItem('finanai_session_v3'); }
+        if (parsed && typeof parsed === 'object') {
+          setCurrentUser(parsed);
+          setLanguage(parsed.language || 'pt');
+        }
+      } catch (e) { 
+        console.warn("Session restore failed:", e);
+        localStorage.removeItem('finanai_session_v3'); 
+      }
     } else if (saved === "undefined") {
       localStorage.removeItem('finanai_session_v3');
     }
   }, []);
+
+  // Persist Session
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('finanai_session_v3', JSON.stringify(currentUser));
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     const checkConn = async () => {

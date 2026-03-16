@@ -528,7 +528,18 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                    viewData.transactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(t => (
                       <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors group">
                          <td className="px-8 py-4"><span className="text-xs font-bold text-slate-600 dark:text-slate-400">{new Date(t.date).toLocaleDateString('pt-BR')}</span></td>
-                         <td className="px-8 py-4"><div className="flex items-center gap-2">{t.type === 'INCOME' ? <ArrowUpCircle size={14} className="text-emerald-500" /> : <ArrowDownCircle size={14} className="text-rose-500" />}<span className="text-xs font-bold text-slate-800 dark:text-white">{t.description}</span></div></td>
+                         <td className="px-8 py-4">
+                            <div className="flex flex-col gap-1">
+                               <div className="flex items-center gap-2">
+                                  {t.type === 'INCOME' ? <ArrowUpCircle size={14} className="text-emerald-500" /> : <ArrowDownCircle size={14} className="text-rose-500" />}
+                                  <span className="text-xs font-bold text-slate-800 dark:text-white">{t.description}</span>
+                               </div>
+                               <div className="flex items-center gap-2">
+                                  {t.is_recurring && <span className="text-[8px] font-black uppercase text-indigo-500 flex items-center gap-0.5"><Clock size={8}/> Recorrente</span>}
+                                  {t.installment_total && t.installment_total > 1 && <span className="text-[8px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>}
+                               </div>
+                            </div>
+                         </td>
                          <td className="px-8 py-4"><span className="px-2 py-1 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">{t.category}</span></td>
                          <td className="px-8 py-4 text-center">{t.status === 'PAID' ? <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full"><CheckCircle2 size={10}/> Pago</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full"><Clock size={10}/> Pendente</span>}</td>
                          <td className={`px-8 py-4 text-right font-black text-xs ${t.type === 'INCOME' ? 'text-emerald-600' : 'text-slate-800 dark:text-white'}`}>{t.type === 'EXPENSE' ? '-' : '+'} R$ {Number(t.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>

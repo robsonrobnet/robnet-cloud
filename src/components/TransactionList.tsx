@@ -305,7 +305,12 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                    <p className="text-xs font-bold text-slate-400 truncate">{entityName} • {category?.name || t.category}</p>
                 </div>
                 <h4 className={`text-sm font-black text-slate-800 dark:text-white truncate ${t.status === 'PAID' ? 'opacity-70 line-through decoration-slate-300 dark:decoration-slate-600' : ''}`}>{t.description}</h4>
-                {t.installment_total && <span className="text-[9px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>}
+                {t.installment_total && t.installment_total > 1 && (
+                   <span className="text-[9px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>
+                )}
+                {t.is_recurring && (
+                   <span className="text-[9px] font-black text-indigo-500 uppercase flex items-center gap-0.5"><Clock size={10}/> Recorrente</span>
+                )}
              </div>
           </div>
 
@@ -412,6 +417,40 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                   <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label><input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.date} onChange={e => setEditingTransaction({...editingTransaction, date: e.target.value})} required /></div>
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vencimento</label><input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.due_date || editingTransaction.date} onChange={e => setEditingTransaction({...editingTransaction, due_date: e.target.value})} /></div>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                     <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                           <Clock size={14} className="text-indigo-500" /> Transação Recorrente?
+                        </label>
+                        <button 
+                           type="button" 
+                           onClick={() => setEditingTransaction({...editingTransaction, is_recurring: !editingTransaction.is_recurring})}
+                           className={`w-10 h-6 rounded-full transition-all relative ${editingTransaction.is_recurring ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}
+                        >
+                           <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editingTransaction.is_recurring ? 'left-5' : 'left-1'}`}></div>
+                        </button>
+                     </div>
+                     
+                     <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                           <CreditCard size={14} className="text-emerald-500" /> Parcelamento (Total)
+                        </label>
+                        <input 
+                           type="number" 
+                           min="1" 
+                           max="120"
+                           className="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-black text-center text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" 
+                           value={editingTransaction.installment_total || 1} 
+                           onChange={e => setEditingTransaction({...editingTransaction, installment_total: Number(e.target.value)})} 
+                        />
+                     </div>
+                     {editingTransaction.installment_total && editingTransaction.installment_total > 1 && (
+                        <p className="text-[9px] font-bold text-slate-400 italic">
+                           * Serão geradas {editingTransaction.installment_total} parcelas mensais automaticamente.
+                        </p>
+                     )}
                   </div>
                   
                   <div className="pt-2 flex flex-col gap-2">

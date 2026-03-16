@@ -472,6 +472,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                                     {item.scope === 'BUSINESS' && (<div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa Vinculada</label><select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={item.company_id || ''} onChange={(e) => updatePending(idx, 'company_id', e.target.value)}><option value="">Selecione a Empresa...</option>{companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>)}
                                     <div className={item.scope === 'PERSONAL' ? 'md:col-span-2' : ''}><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Tag size={10} /> Categoria {(!item.category_id && !item.category) && <span className="text-rose-500">*</span>}</label><select className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 ${(!item.category_id && !item.category) ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200 dark:border-slate-600'}`} value={item.category_id || ''} onChange={(e) => updatePending(idx, 'category_id', e.target.value)}><option value="">Selecione...</option>{categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>
                                 </div>
+
+                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 flex flex-wrap gap-4 items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => updatePending(idx, 'is_recurring', !item.is_recurring)}
+                                            className={`w-10 h-6 rounded-full transition-all relative ${item.is_recurring ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${item.is_recurring ? 'left-5' : 'left-1'}`}></div>
+                                        </button>
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recorrente?</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Parcelas:</span>
+                                        <input 
+                                            type="number" 
+                                            min="1" 
+                                            className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1 text-[10px] font-black text-center" 
+                                            value={item.installment_total || 1} 
+                                            onChange={(e) => updatePending(idx, 'installment_total', Number(e.target.value))} 
+                                        />
+                                    </div>
+                                </div>
+
                                 <div className="flex gap-2 pt-2"><button onClick={() => { const newList = [...pendingTransactions]; newList.splice(idx, 1); setPendingTransactions(newList); checkIfEmpty(); }} className="flex-1 py-3 bg-slate-100 dark:bg-slate-900 text-slate-500 rounded-xl font-black text-xs uppercase hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-900/30 transition-all">Descartar</button><button onClick={() => handleConfirmTransaction(idx, item)} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black text-xs uppercase hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-400 transition-all flex items-center justify-center gap-2"><Check size={14} /> Confirmar</button></div>
                             </div>
                         ))}
