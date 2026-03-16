@@ -44,6 +44,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
   // Scanning State
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [scannedImagePreview, setScannedImagePreview] = useState<string | null>(null);
 
   // 1. Filter Logic
   const filtered = useMemo(() => {
@@ -131,6 +132,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         due_date: editingTransaction.due_date || editingTransaction.date,
         category_id: editingTransaction.category_id || undefined,
         category: editingTransaction.category,
+        cost_type: editingTransaction.cost_type,
         scope: editingTransaction.scope || 'BUSINESS', 
         company_id: editingTransaction.company_id || companies[0]?.id,
         is_recurring: editingTransaction.is_recurring || false,
@@ -147,6 +149,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       
       setIsEditModalOpen(false);
       setEditingTransaction(null);
+      setScannedImagePreview(null);
       onUpdate();
     } catch (e) {
       alert("Erro ao salvar: " + formatSupabaseError(e));
@@ -163,6 +166,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       reader.readAsDataURL(file);
       reader.onload = async () => {
         const base64Data = reader.result as string;
+        setScannedImagePreview(base64Data);
         const attachment = { mimeType: file.type || 'image/jpeg', data: base64Data };
         
         const result = await analyzeFinancialInput(
@@ -293,6 +297,11 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${t.scope === 'PERSONAL' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-400' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'}`}>
                       {t.scope === 'PERSONAL' ? 'PF' : 'PJ'}
                    </span>
+                   {t.type === 'EXPENSE' && t.cost_type && (
+                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${t.cost_type === 'FIXED' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'}`}>
+                         {t.cost_type === 'FIXED' ? 'Fixo' : 'Variável'}
+                      </span>
+                   )}
                    <p className="text-xs font-bold text-slate-400 truncate">{entityName} • {category?.name || t.category}</p>
                 </div>
                 <h4 className={`text-sm font-black text-slate-800 dark:text-white truncate ${t.status === 'PAID' ? 'opacity-70 line-through decoration-slate-300 dark:decoration-slate-600' : ''}`}>{t.description}</h4>
@@ -337,7 +346,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       {isEditModalOpen && editingTransaction && (
          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar">
-               <button onClick={() => setIsEditModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
+               <button onClick={() => { setIsEditModalOpen(false); setScannedImagePreview(null); }} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
                   <X size={20} />
                </button>
                
@@ -354,6 +363,13 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                      </p>
                   </div>
                </div>
+
+               {scannedImagePreview && editingTransaction.id === 'new' && (
+                  <div className="mb-6 rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-2">
+                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Documento Analisado</p>
+                     <img src={scannedImagePreview} alt="Recibo Escaneado" className="w-full h-32 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                  </div>
+               )}
 
                <form onSubmit={handleSaveEdit} className="space-y-4">
                   {/* Scope & Entity */}
@@ -382,6 +398,16 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.status} onChange={e => setEditingTransaction({...editingTransaction, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select></div>
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.category_id || ''} onChange={e => { const cat = categories.find(c => c.id === e.target.value); setEditingTransaction({ ...editingTransaction, category_id: e.target.value, category: cat ? cat.name : 'Outros' }); }}><option value="">Selecione...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   </div>
+
+                  {editingTransaction.type === 'EXPENSE' && (
+                    <div className="animate-in slide-in-from-top-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Custo</label>
+                       <div className="flex gap-2 mt-1">
+                          <button type="button" onClick={() => setEditingTransaction({...editingTransaction, cost_type: 'FIXED'})} className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase transition-all ${editingTransaction.cost_type === 'FIXED' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}>Custo Fixo</button>
+                          <button type="button" onClick={() => setEditingTransaction({...editingTransaction, cost_type: 'VARIABLE'})} className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase transition-all ${editingTransaction.cost_type === 'VARIABLE' ? 'bg-blue-500 text-white border-blue-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}>Custo Variável</button>
+                       </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label><input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.date} onChange={e => setEditingTransaction({...editingTransaction, date: e.target.value})} required /></div>

@@ -36,6 +36,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   // File State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null); // For Images
+  const [lastScannedImage, setLastScannedImage] = useState<string | null>(null);
   
   const [manualScope, setManualScope] = useState<TransactionScope | 'AUTO'>('AUTO');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,6 +205,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
     );
 
     setInput(''); clearFile(); setIsLoading(true);
+    if (filePreview) setLastScannedImage(filePreview);
+    else setLastScannedImage(null);
 
     let attachment: Attachment | undefined;
     if (currentFile) {
@@ -339,8 +342,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   };
 
   const updateUpdateField = (index: number, field: string, value: any) => { const newList = [...pendingUpdates]; newList[index].fields = { ...newList[index].fields, [field]: value }; setPendingUpdates(newList); };
-  const discardAll = () => { setPendingTransactions([]); setPendingUpdates([]); setPendingDeletions([]); setShowReviewModal(false); };
-  const checkIfEmpty = () => { if (pendingTransactions.length === 0 && pendingUpdates.length === 0 && pendingDeletions.length === 0) setShowReviewModal(false); };
+  const discardAll = () => { setPendingTransactions([]); setPendingUpdates([]); setPendingDeletions([]); setShowReviewModal(false); setLastScannedImage(null); };
+  const checkIfEmpty = () => { if (pendingTransactions.length === 0 && pendingUpdates.length === 0 && pendingDeletions.length === 0) { setShowReviewModal(false); setLastScannedImage(null); } };
   const updatePending = (index: number, field: string, value: any) => { const newList = [...pendingTransactions]; newList[index] = { ...newList[index], [field]: value }; setPendingTransactions(newList); };
   
   const getFileIcon = (mime: string, name: string) => { 
@@ -362,6 +365,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                </div>
                
                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {lastScannedImage && pendingTransactions.length > 0 && (
+                      <div className="mb-4 rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-2">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Documento Analisado</p>
+                          <img src={lastScannedImage} alt="Recibo Escaneado" className="w-full h-40 object-cover rounded-xl shadow-inner" referrerPolicy="no-referrer" />
+                      </div>
+                  )}
                   {/* DELETIONS */}
                   {pendingDeletions.length > 0 && (
                       <div className="space-y-3">

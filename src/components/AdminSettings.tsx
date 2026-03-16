@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, Users, Building2, Tags, Settings, Plus, Edit, Trash2, 
-  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette
+  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette, DollarSign
 } from 'lucide-react';
 import { supabase, formatSupabaseError, updateSupabaseConfig } from '../lib/supabase';
 import { User, Company, Category, UserRole, UserPlan, Language } from '../types';
@@ -33,6 +33,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
 
+  // User Management State
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
+
   const [sysConfig, setSysConfig] = useState({
     dbUrl: localStorage.getItem('finanai_db_url') || '',
     dbKey: localStorage.getItem('finanai_db_key') || ''
@@ -41,6 +45,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   // Success Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Wipe Modal State
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [wipeScope, setWipeScope] = useState<'COMPANY' | 'SYSTEM'>('COMPANY');
+  const [wipeOptions, setWipeOptions] = useState({
+    transactions: true,
+    nfse: true,
+    chat: true
+  });
 
   useEffect(() => { fetchAdminData(); }, [currentUser]);
 
@@ -67,15 +80,23 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   // --- INFRASTRUCTURE ACTIONS ---
 
-  const handleWipeTransactions = async () => {
-    if (!confirm("⚠️ CUIDADO: Isso apagará TODO o histórico financeiro da empresa. Esta ação é irreversível. Deseja continuar?")) return;
+  const handleWipeTransactions = (scope: 'COMPANY' | 'SYSTEM' = 'COMPANY') => {
+    setWipeScope(scope);
+    setShowWipeModal(true);
+  };
+
+  const executeWipe = async () => {
+    const isSystem = wipeScope === 'SYSTEM' && currentUser.role === 'MANAGER';
     
     setIsLoading(true);
     try {
-      console.log(`[Admin] Wiping transactions for company: ${currentUser.company_id}`);
-      const count = await FinancialService.wipeTransactions(currentUser.company_id);
+      const targetId = isSystem ? 'ALL' : currentUser.company_id;
+      console.log(`[Admin] Executing wipe. Scope: ${wipeScope}, Options:`, wipeOptions);
       
-      setSuccessMessage(`Operação concluída com sucesso.\n${count || 0} registros foram removidos.`);
+      const count = await FinancialService.wipeTransactions(targetId, currentUser.id, wipeOptions);
+      
+      setShowWipeModal(false);
+      setSuccessMessage(`Limpeza Abrangente concluída.\n${count || 0} registros foram removidos do ${isSystem ? 'Sistema' : 'Terminal'}.`);
       setShowSuccessModal(true);
       
       await fetchData();
@@ -157,6 +178,58 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     }
   };
 
+  // --- USER ACTIONS ---
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser?.id) return;
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          role: editingUser.role,
+          plan: editingUser.plan,
+          username: editingUser.username,
+          email: editingUser.email,
+          whatsapp: editingUser.whatsapp
+        })
+        .eq('id', editingUser.id);
+
+      if (error) throw error;
+
+      setShowUserModal(false);
+      setEditingUser(null);
+      fetchAdminData();
+      setSuccessMessage("Terminal atualizado com sucesso.");
+      setShowSuccessModal(true);
+    } catch (e: any) {
+      alert("Erro ao atualizar usuário: " + formatSupabaseError(e));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    if (id === currentUser.id) {
+      alert("Você não pode excluir seu próprio acesso.");
+      return;
+    }
+    if (!confirm("⚠️ ATENÇÃO: Deseja remover permanentemente o acesso deste terminal?")) return;
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      fetchAdminData();
+    } catch (e: any) {
+      alert("Erro ao remover usuário: " + formatSupabaseError(e));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       
@@ -203,9 +276,20 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                      <div key={u.id} className="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-700">
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center font-black text-indigo-600 border border-slate-200 dark:border-slate-700 shadow-sm">{(u.username || 'U').substring(0,2).toUpperCase()}</div>
-                           <div><p className="text-sm font-black text-slate-800 dark:text-white">{u.username}</p><span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>{u.role}</span></div>
+                           <div>
+                               <p className="text-sm font-black text-slate-800 dark:text-white">{u.username}</p>
+                               <div className="flex items-center gap-2 mt-1">
+                                   <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-600' : u.role === 'MANAGER' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{u.role}</span>
+                                   <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">{u.plan}</span>
+                               </div>
+                           </div>
                         </div>
-                        <button className="p-3 text-slate-400 hover:text-indigo-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700"><Edit size={18}/></button>
+                        <div className="flex gap-2">
+                           <button onClick={() => { setEditingUser(u); setShowUserModal(true); }} className="p-3 text-slate-400 hover:text-indigo-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700 transition-colors"><Edit size={18}/></button>
+                           {u.id !== currentUser.id && (
+                               <button onClick={() => handleDeleteUser(u.id)} className="p-3 text-slate-400 hover:text-rose-600 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700 transition-colors"><Trash2 size={18}/></button>
+                           )}
+                        </div>
                      </div>
                   ))}
                </div>
@@ -235,7 +319,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                             <p className="text-xs font-black text-slate-800 dark:text-white uppercase">Limpar Transações</p>
                             <p className="text-[10px] text-slate-500 mt-1 uppercase">Remove todo o histórico financeiro desta empresa.</p>
                         </div>
-                        <button onClick={handleWipeTransactions} disabled={isLoading} className="px-6 py-3 bg-white dark:bg-slate-800 text-rose-500 border border-rose-200 dark:border-rose-900/50 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm flex items-center gap-2">
+                        <button onClick={() => handleWipeTransactions('COMPANY')} disabled={isLoading} className="px-6 py-3 bg-white dark:bg-slate-800 text-rose-500 border border-rose-200 dark:border-rose-900/50 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm flex items-center gap-2">
                             {isLoading ? <Loader2 className="animate-spin" size={14}/> : <Eraser size={14} />} Executar Limpeza
                         </button>
                     </div>
@@ -294,7 +378,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                              <h4 className="text-lg font-black uppercase tracking-[0.2em] mb-4 flex items-center gap-3"><Terminal size={24} className="text-indigo-400" /> Operações de Emergência</h4>
                              <p className="text-xs text-slate-400 mb-8 font-bold uppercase">Utilize com extrema cautela. Estas ações são definitivas.</p>
                              
-                             <div className="grid grid-cols-1 gap-4 mt-8">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                                 <button onClick={() => handleWipeTransactions(currentUser.role === 'MANAGER' ? 'SYSTEM' : 'COMPANY')} disabled={isLoading} className="p-6 bg-amber-500/10 border border-amber-500/30 rounded-3xl hover:bg-amber-500/20 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
+                                     {isLoading ? <Loader2 className="animate-spin text-amber-500" size={24}/> : <Eraser className="text-amber-500" size={24} />}
+                                     <div>
+                                         <p className="text-xs font-black uppercase tracking-widest text-amber-500">Limpar Lançamentos</p>
+                                         <p className="text-[10px] text-amber-400/50 mt-1 uppercase">{currentUser.role === 'MANAGER' ? 'Remover histórico de TODO O SISTEMA' : 'Remover apenas histórico financeiro'}</p>
+                                     </div>
+                                 </button>
                                  <button onClick={handleMasterReset} disabled={isLoading} className="p-6 bg-rose-500/10 border border-rose-500/30 rounded-3xl hover:bg-rose-500/20 transition-all text-left flex flex-col items-start gap-3 disabled:opacity-50">
                                      {isLoading ? <Loader2 className="animate-spin text-rose-500" size={24}/> : <Skull className="text-rose-500" size={24} />}
                                      <div>
@@ -312,6 +403,63 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
              </div>
          )}
       </div>
+
+      {/* USER MODAL */}
+      {showUserModal && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800">
+                  <button onClick={() => setShowUserModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+                  <div className="mb-8 flex items-center gap-5">
+                      <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 rounded-3xl flex items-center justify-center"><Users size={32} /></div>
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white">Gestão de Acesso</h3>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configuração de Terminal</p>
+                      </div>
+                  </div>
+                  <form onSubmit={handleSaveUser} className="space-y-6">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nome de Usuário</label>
+                        <input required className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.username || ''} onChange={e => setEditingUser({...editingUser, username: e.target.value})} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nível de Acesso</label>
+                            <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-xs font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.role || 'USER'} onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}>
+                                <option value="USER">Usuário Comum</option>
+                                <option value="ADMIN">Administrador</option>
+                                {currentUser.role === 'MANAGER' && <option value="MANAGER">Gestor Master</option>}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Plano de Serviço</label>
+                            <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-xs font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.plan || 'FREE'} onChange={e => setEditingUser({...editingUser, plan: e.target.value as UserPlan})}>
+                                <option value="FREE">Gratuito</option>
+                                <option value="START">Start</option>
+                                <option value="PRO">Pro</option>
+                                <option value="ENTERPRISE">Enterprise</option>
+                            </select>
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">E-mail de Contato</label>
+                          <input type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.email || ''} onChange={e => setEditingUser({...editingUser, email: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">WhatsApp</label>
+                          <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.whatsapp || ''} onChange={e => setEditingUser({...editingUser, whatsapp: e.target.value})} placeholder="55..." />
+                        </div>
+                      </div>
+
+                      <button disabled={isLoading} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3">
+                          {isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Atualizar Acesso
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
 
       {/* CATEGORY MODAL */}
       {showCategoryModal && (
@@ -370,6 +518,83 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <button onClick={() => setShowSuccessModal(false)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all">
                     Entendido
                 </button>
+            </div>
+        </div>
+      )}
+
+      {/* WIPE OPTIONS MODAL */}
+      {showWipeModal && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800">
+                <button onClick={() => setShowWipeModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+                
+                <div className="mb-8 flex items-center gap-5">
+                    <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-3xl flex items-center justify-center"><Eraser size={32} /></div>
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Limpeza Abrangente</h3>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Selecione os dados para remoção</p>
+                    </div>
+                </div>
+
+                <div className="space-y-4 mb-10">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Opções de Limpeza:</p>
+                    
+                    <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-indigo-500 transition-all">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-lg flex items-center justify-center"><DollarSign size={16}/></div>
+                            <div>
+                                <p className="text-xs font-black text-slate-800 dark:text-white uppercase">Transações Financeiras</p>
+                                <p className="text-[9px] text-slate-400 font-bold">Todo o histórico de entradas e saídas</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" checked={wipeOptions.transactions} onChange={e => setWipeOptions({...wipeOptions, transactions: e.target.checked})} className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                    </label>
+
+                    <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-indigo-500 transition-all">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-lg flex items-center justify-center"><FileText size={16}/></div>
+                            <div>
+                                <p className="text-xs font-black text-slate-800 dark:text-white uppercase">Histórico de RPS (NFSe)</p>
+                                <p className="text-[9px] text-slate-400 font-bold">Notas fiscais emitidas e rascunhos</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" checked={wipeOptions.nfse} onChange={e => setWipeOptions({...wipeOptions, nfse: e.target.checked})} className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                    </label>
+
+                    <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-indigo-500 transition-all">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-lg flex items-center justify-center"><Brain size={16}/></div>
+                            <div>
+                                <p className="text-xs font-black text-slate-800 dark:text-white uppercase">Memória do Chat AI</p>
+                                <p className="text-[9px] text-slate-400 font-bold">Histórico de conversas com a inteligência</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" checked={wipeOptions.chat} onChange={e => setWipeOptions({...wipeOptions, chat: e.target.checked})} className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                    </label>
+                </div>
+
+                <div className="p-6 bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 rounded-2xl mb-8">
+                    <div className="flex items-center gap-3 text-rose-600 mb-2">
+                        <AlertTriangle size={18} />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Aviso de Irreversibilidade</p>
+                    </div>
+                    <p className="text-[10px] text-rose-500/80 font-bold leading-relaxed uppercase">
+                        {wipeScope === 'SYSTEM' 
+                            ? "ESTA OPERAÇÃO AFETARÁ TODAS AS EMPRESAS DO SISTEMA GLOBALMENTE." 
+                            : "ESTA OPERAÇÃO APAGARÁ OS DADOS SELECIONADOS PERMANENTEMENTE DESTE TERMINAL."}
+                    </p>
+                </div>
+
+                <div className="flex gap-4">
+                    <button onClick={() => setShowWipeModal(false)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+                    <button 
+                        onClick={executeWipe} 
+                        disabled={isLoading || (!wipeOptions.transactions && !wipeOptions.nfse && !wipeOptions.chat)} 
+                        className="flex-2 py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        {isLoading ? <Loader2 className="animate-spin" size={16}/> : <Skull size={16}/>} Confirmar Destruição
+                    </button>
+                </div>
             </div>
         </div>
       )}

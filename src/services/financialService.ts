@@ -292,16 +292,50 @@ export const FinancialService = {
   },
 
   /**
-   * Bulk delete all transactions for a company
+   * Bulk delete selected data for a company
    */
-  async wipeTransactions(companyId: string) {
-    const { error, count } = await supabase
-      .from('transactions')
-      .delete({ count: 'exact' })
-      .eq('company_id', companyId);
+  async wipeTransactions(companyId: string, userId: string, options: { transactions: boolean, nfse: boolean, chat: boolean }) {
+    let totalCount = 0;
+
+    // 1. Transactions
+    if (options.transactions) {
+      const query = supabase.from('transactions').delete({ count: 'exact' });
+      if (companyId !== 'ALL') {
+        query.eq('company_id', companyId);
+      }
+      const { error: tError, count: tCount } = await query;
+      if (tError) throw tError;
+      totalCount += (tCount || 0);
+    }
+
+    // 2. NFSe RPS
+    if (options.nfse) {
+      try {
+        const query = supabase.from('nfse_rpss').delete({ count: 'exact' });
+        if (companyId !== 'ALL') {
+          query.eq('company_id', companyId);
+        }
+        const { count: rCount } = await query;
+        totalCount += (rCount || 0);
+      } catch (e) {
+        console.warn("Could not wipe nfse_rpss:", e);
+      }
+    }
+
+    // 3. Chat Messages
+    if (options.chat) {
+      try {
+        const query = supabase.from('chat_messages').delete();
+        if (companyId !== 'ALL') {
+          query.eq('user_id', userId);
+        }
+        await query;
+      } catch (e) {
+        console.warn("Could not wipe chat_messages:", e);
+      }
+    }
     
-    if (error) throw error;
-    return count;
+    return totalCount;
   },
 
   /**
@@ -346,5 +380,29 @@ export const FinancialService = {
       content,
       timestamp: Date.now()
     }]);
+  },
+
+  /**
+   * Test database connection and schema integrity
+   */
+  async testConnection() {
+    try {
+      // Test basic connectivity
+      const { data: companies, error: cError } = await supabase.from('companies').select('id').limit(1);
+      if (cError) throw cError;
+
+      // Test transactions table
+      const { error: tError } = await supabase.from('transactions').select('id').limit(1);
+      if (tError) throw tError;
+
+      // Test users table
+      const { error: uError } = await supabase.from('users').select('id').limit(1);
+      if (uError) throw uError;
+
+      return true;
+    } catch (e) {
+      console.error("Database integrity test failed:", e);
+      return false;
+    }
   }
 };

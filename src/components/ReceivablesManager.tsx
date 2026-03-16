@@ -148,7 +148,14 @@ const ReceivablesManager: React.FC<ReceivablesManagerProps> = ({ defaultMode, tr
                         <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDateBR(item.due_date || item.date)}</td>
                             <td className="px-8 py-5">
-                                <p className="text-sm font-black text-slate-800 dark:text-white">{item.description}</p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-sm font-black text-slate-800 dark:text-white">{item.description}</p>
+                                    {item.type === 'EXPENSE' && item.cost_type && (
+                                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${item.cost_type === 'FIXED' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'}`}>
+                                            {item.cost_type === 'FIXED' ? 'Fixo' : 'Variável'}
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase">{item.scope === 'PERSONAL' ? 'Pessoal' : 'Corporativo'}</p>
                             </td>
                             <td className="px-8 py-5"><span className="px-3 py-1 bg-slate-100 dark:bg-slate-700 rounded-lg text-[10px] font-black text-slate-500">{item.category}</span></td>

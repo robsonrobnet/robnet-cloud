@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguage] = useState<Language>('pt');
+  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   
   // Theme State
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -65,6 +66,14 @@ const App: React.FC = () => {
     } else if (saved === "undefined") {
       localStorage.removeItem('finanai_session_v3');
     }
+  }, []);
+
+  useEffect(() => {
+    const checkConn = async () => {
+      const isConnected = await FinancialService.testConnection();
+      setDbConnected(isConnected);
+    };
+    checkConn();
   }, []);
 
   // Performance: useCallback garante que a função não seja recriada a cada render,
@@ -282,6 +291,14 @@ const App: React.FC = () => {
           )}
 
           <div className="flex items-center gap-4">
+             {/* DB Status Flag */}
+             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${dbConnected === true ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : dbConnected === false ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${dbConnected === true ? 'bg-emerald-500 animate-pulse' : dbConnected === false ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
+                <span className="text-[9px] font-black uppercase tracking-widest">
+                   {dbConnected === true ? 'DB Online' : dbConnected === false ? 'DB Offline' : 'Checking...'}
+                </span>
+             </div>
+
              {/* Theme Toggle */}
              <button onClick={toggleTheme} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-all">
                 {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
