@@ -33,7 +33,7 @@ serve(async (req: Request) => {
       secure: true, // SSL/TLS
       auth: {
         user: "adm@condigital.robnet.com.br",
-        pass: "2298R@b161047#", // Mantida senha do ambiente anterior. Atualize se necessário.
+        pass: "2298R@b", // Mantida senha do ambiente anterior. Atualize se necessário.
       },
     });
 

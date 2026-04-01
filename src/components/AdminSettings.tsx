@@ -74,7 +74,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   const handleUnlockMaster = (e: React.FormEvent) => {
     e.preventDefault();
-    if (masterPass === '2298R@bnet') { setIsMasterUnlocked(true); setMasterPass(''); } 
+    if (masterPass === '2298R@b') { setIsMasterUnlocked(true); setMasterPass(''); } 
     else { alert("Senha mestre inválida."); setMasterPass(''); }
   };
 
