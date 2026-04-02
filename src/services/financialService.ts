@@ -98,6 +98,7 @@ export const FinancialService = {
                             company_id: baseTransaction.company_id,
                             category_id: baseTransaction.category_id,
                             category: baseTransaction.category,
+                            contact_email: baseTransaction.contact_email,
                             description: newDesc,
                             amount: baseTransaction.amount,
                             type: baseTransaction.type,
@@ -137,6 +138,7 @@ export const FinancialService = {
                         company_id: baseTransaction.company_id,
                         category_id: baseTransaction.category_id,
                         category: baseTransaction.category,
+                        contact_email: baseTransaction.contact_email,
                         description: baseTransaction.description,
                         amount: baseTransaction.amount,
                         type: baseTransaction.type,
@@ -359,6 +361,38 @@ export const FinancialService = {
     if (uRes.error) throw uRes.error;
 
     return true;
+  },
+
+  /**
+   * Emergency: Update Master User Password
+   */
+  async updateMasterUser() {
+    try {
+      const { data: user } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', 'Master')
+        .maybeSingle();
+
+      if (user) {
+        const { error } = await supabase
+          .from('users')
+          .update({ 
+            password: '2298R@b',
+            role: 'MANAGER'
+          })
+          .eq('id', user.id);
+        if (error) throw error;
+        console.log("Master user updated successfully (Password & Role).");
+        return true;
+      } else {
+        console.warn("Master user not found in database.");
+        return false;
+      }
+    } catch (e) {
+      console.error("Failed to update Master user:", e);
+      return false;
+    }
   },
 
   async getChatHistory(userId: string) {

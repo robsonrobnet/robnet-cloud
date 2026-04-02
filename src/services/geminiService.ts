@@ -82,7 +82,7 @@ export const analyzeFinancialInput = async (
     const contents = [...chatHistory, { role: 'user', parts }];
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-3-flash-preview",
       contents,
       config: { systemInstruction: SYSTEM_PROMPT }
     });
@@ -119,25 +119,9 @@ export const analyzeFinancialInput = async (
  */
 export const testGeminiConnection = async (apiKey: string): Promise<{ success: boolean; message?: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: "test" });
     return { success: true };
-  } catch (error: any) {
-    return { success: false, message: error.message };
-  }
-};
-
-/**
- * Testa a conexão com a OpenAI API (Legado).
- */
-export const testOpenAIConnection = async (apiKey: string): Promise<{ success: boolean; message?: string }> => {
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
-    });
-    return { success: res.ok };
   } catch (error: any) {
     return { success: false, message: error.message };
   }

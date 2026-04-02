@@ -5,7 +5,7 @@ import {
   Search, Trash2, Calendar, Tag, ShoppingBag, Coffee, Car, Home, 
   Heart, Zap, Gamepad2, Utensils, Landmark, Wallet, CreditCard, 
   Coins, HeartPulse, Smartphone, Briefcase, User, Clock, AlertTriangle, Box, ArrowUpCircle, ArrowDownCircle,
-  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays, Camera, Loader2
+  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays, Camera, Loader2, Plus, Bell
 } from 'lucide-react';
 import { supabase, formatSupabaseError } from '../lib/supabase';
 import { FinancialService } from '../services/financialService';
@@ -138,7 +138,8 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         is_recurring: editingTransaction.is_recurring || false,
         installment_current: editingTransaction.installment_current || undefined,
         installment_total: editingTransaction.installment_total || undefined,
-        type: editingTransaction.type
+        type: editingTransaction.type,
+        contact_email: editingTransaction.contact_email || ''
       };
 
       if (editingTransaction.id === 'new') {
@@ -332,6 +333,21 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                 <button onClick={() => handleToggleStatus(t)} className={`p-2 rounded-xl transition-colors ${t.status === 'PAID' ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-slate-400 hover:text-emerald-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title={t.status === 'PAID' ? "Marcar como Pendente" : "Marcar como Pago"}>
                    <CheckCircle2 size={18} />
                 </button>
+                <button 
+                   onClick={() => {
+                       if (!t.contact_email) {
+                           alert("Por favor, cadastre um e-mail para este lançamento.");
+                           return;
+                       }
+                       const subject = encodeURIComponent(`Lembrete de Pagamento: ${t.description}`);
+                       const body = encodeURIComponent(`Olá,\n\nGostaríamos de lembrar sobre o pagamento de R$ ${t.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})} referente a ${t.description}, com vencimento em ${new Date(t.due_date || t.date).toLocaleDateString('pt-BR')}.\n\nAtenciosamente,\nEquipe Financeira`);
+                       window.open(`mailto:${t.contact_email}?subject=${subject}&body=${body}`);
+                   }}
+                   className="p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                   title="Enviar Cobrança"
+                >
+                   <Bell size={18} />
+                </button>
                 <button onClick={() => initiateEdit(t)} className="p-2 rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Editar">
                    <Edit size={18} />
                 </button>
@@ -402,6 +418,11 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                   <div className="grid grid-cols-2 gap-4">
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.status} onChange={e => setEditingTransaction({...editingTransaction, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select></div>
                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label><select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.category_id || ''} onChange={e => { const cat = categories.find(c => c.id === e.target.value); setEditingTransaction({ ...editingTransaction, category_id: e.target.value, category: cat ? cat.name : 'Outros' }); }}><option value="">Selecione...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  </div>
+
+                  <div>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail para Alertas/Cobrança</label>
+                     <input type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={editingTransaction.contact_email || ''} onChange={e => setEditingTransaction({...editingTransaction, contact_email: e.target.value})} placeholder="exemplo@email.com" />
                   </div>
 
                   {editingTransaction.type === 'EXPENSE' && (
@@ -490,10 +511,34 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                    }
                  }}
                  disabled={isScanning}
-                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                 className="bg-indigo-600/10 text-indigo-600 border border-indigo-600/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 disabled:opacity-50"
                >
                  {isScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                  {isScanning ? 'Analisando...' : 'Escanear Recibo'}
+               </button>
+
+               <button 
+                 onClick={() => {
+                   setEditingTransaction({
+                     id: 'new',
+                     user_id: '',
+                     company_id: companies[0]?.id || '',
+                     description: '',
+                     amount: 0,
+                     type: 'EXPENSE',
+                     status: 'PENDING',
+                     category: 'Outros',
+                     category_id: '',
+                     scope: 'BUSINESS',
+                     date: new Date().toISOString().split('T')[0],
+                     due_date: new Date().toISOString().split('T')[0],
+                     contact_email: ''
+                   });
+                   setIsEditModalOpen(true);
+                 }}
+                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center gap-2"
+               >
+                 <Plus size={14} /> Novo Lançamento
                </button>
                <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex">
                   <button onClick={() => setScopeFilter('ALL')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'ALL' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-400'}`}>Tudo</button>

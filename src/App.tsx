@@ -201,7 +201,8 @@ const App: React.FC = () => {
         due_date: newTrans.due_date || finalDate,
         is_recurring: !!newTrans.is_recurring,
         installment_current: newTrans.installment_current,
-        installment_total: newTrans.installment_total
+        installment_total: newTrans.installment_total,
+        contact_email: newTrans.contact_email
       };
       
       const response = await FinancialService.addTransaction(payload);
@@ -370,7 +371,16 @@ const App: React.FC = () => {
                 />
               </div>
             : view === AppView.ADMIN ? <AdminSettings currentUser={currentUser} t={t} language={language} onLanguageChange={setLanguage} fetchData={fetchData} />
-            : <Dashboard transactions={transactions} currentMonth={currentDate} categories={categories} t={t} />}
+            : <Dashboard 
+                transactions={transactions} 
+                currentMonth={currentDate} 
+                categories={categories} 
+                companies={companies}
+                onAdd={handleAddTransaction}
+                onDelete={async (id) => { await FinancialService.deleteTransaction(id); fetchData(); }}
+                onUpdate={fetchData}
+                t={t} 
+              />}
           </div>
         </div>
       </main>

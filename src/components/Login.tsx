@@ -4,6 +4,7 @@ import { ShieldCheck, Loader2, CreditCard, Building2, UserPlus, LogIn, FileText,
 import { supabase, formatSupabaseError, updateSupabaseConfig } from '../lib/supabase';
 import { User, UserRole, UserPlan, Language } from '../types';
 import { EmailService } from '../services/emailService';
+import { FinancialService } from '../services/financialService';
 
 interface LoginProps {
   onLoginSuccess: (user: User) => void;
@@ -42,6 +43,28 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
     updateSupabaseConfig(dbSettings.url, dbSettings.key);
     setShowConfig(false);
     alert("Conexão atualizada com sucesso!");
+  };
+
+  const handleResetConfig = () => {
+    localStorage.removeItem('finanai_db_url');
+    localStorage.removeItem('finanai_db_key');
+    window.location.reload();
+  };
+
+  const handleEmergencyUpdate = async () => {
+    setIsLoading(true);
+    try {
+      const success = await (FinancialService as any).updateMasterUser();
+      if (success) {
+        alert("Usuário Master atualizado com sucesso!");
+      } else {
+        alert("Usuário Master não encontrado ou erro na conexão.");
+      }
+    } catch (e) {
+      alert("Erro crítico: " + formatSupabaseError(e));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const generateAccessKey = () => {
@@ -193,6 +216,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
                  <input type="password" className="w-full bg-black/30 border border-slate-700 rounded-xl p-3 text-white text-xs" placeholder="Key" value={dbSettings.key} onChange={e => setDbSettings({...dbSettings, key: e.target.value})} />
                  <button className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-xs uppercase">Salvar</button>
               </form>
+              <div className="mt-6 pt-6 border-t border-slate-800 space-y-3">
+                 <button onClick={handleResetConfig} className="w-full bg-slate-800 text-slate-400 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-all">Resetar Configuração</button>
+                 <button onClick={handleEmergencyUpdate} className="w-full bg-rose-500/10 text-rose-500 border border-rose-500/20 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-500/20 transition-all">Atualizar Usuário Master</button>
+              </div>
            </div>
         </div>
       )}

@@ -58,6 +58,7 @@ export interface Transaction {
   is_recurring?: boolean;
   installment_current?: number;
   installment_total?: number;
+  contact_email?: string;
   created_at?: string;
 }
 

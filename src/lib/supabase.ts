@@ -25,7 +25,12 @@ export const formatSupabaseError = (e: any): string => {
   }
 
   // Handle standard JS Error
-  if (e instanceof Error) return e.message;
+  if (e instanceof Error) {
+    if (e.message === 'Failed to fetch') {
+      return "Erro de Conexão: Não foi possível alcançar o banco de dados. Verifique sua URL do Supabase ou se o projeto está ativo.";
+    }
+    return e.message;
+  }
 
   // Handle common API error patterns
   if (e.error && typeof e.error === 'string') return e.error;

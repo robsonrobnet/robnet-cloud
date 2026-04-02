@@ -5,17 +5,22 @@ import {
   Cell, PieChart, Pie, Legend, AreaChart, Area
 } from 'recharts';
 import { 
-  TrendingUp, ArrowUpRight, ArrowDownRight, Tag, PieChart as PieChartIcon, 
+  TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Tag, PieChart as PieChartIcon, 
   Sparkles, CalendarDays, Activity, Building2, User, CreditCard, Calendar,
   Wallet, Landmark, Receipt, Percent, AlertTriangle, FileText, CheckCircle2, Clock, ArrowUpCircle, ArrowDownCircle,
-  Zap, Brain, Target, ShieldCheck
+  Zap, Brain, Target, ShieldCheck, Plus, X, Bell
 } from 'lucide-react';
-import { Transaction, FinancialSummary, Category, TransactionScope } from '../types';
+import { Transaction, FinancialSummary, Category, TransactionScope, Company } from '../types';
+import { FinancialService } from '../services/financialService';
 
 interface DashboardProps {
   transactions: Transaction[];
   currentMonth: Date;
   categories: Category[];
+  companies: Company[];
+  onAdd: (t: any) => void;
+  onDelete: (id: string) => void;
+  onUpdate: () => void;
   t: any;
 }
 
@@ -25,8 +30,43 @@ const COLORS_PALETTE = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#14b8a6', '#f97316', '#a855f7', '#db2777', '#0ea5e9'
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, categories = [], t }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, categories = [], companies = [], onAdd, onDelete, onUpdate, t }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('ALL');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [formData, setFormData] = useState({
+    description: '', amount: '', category_id: '', scope: 'BUSINESS' as TransactionScope, company_id: '',
+    date: new Date().toISOString().split('T')[0], due_date: new Date().toISOString().split('T')[0],
+    is_recurring: false, status: 'PENDING' as any, type: 'EXPENSE' as any,
+    contact_email: ''
+  });
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        ...formData,
+        amount: Number(formData.amount),
+        category: categories.find(c => c.id === formData.category_id)?.name || 'Outros'
+      };
+
+      if (editingTransaction) {
+        await FinancialService.updateTransaction(editingTransaction.id, payload);
+      } else {
+        await onAdd(payload);
+      }
+      setShowAddModal(false);
+      setEditingTransaction(null);
+      onUpdate();
+    } catch (error) {
+      alert("Erro ao salvar: " + error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Tem certeza que deseja excluir este registro?")) return;
+    await onDelete(id);
+  };
 
   const currentMonthStr = useMemo(() => {
     const year = currentMonth.getFullYear();
@@ -249,10 +289,27 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 pb-20">
       {/* Tab Selector */}
-      <div className="flex p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-full md:w-fit overflow-x-auto">
-        <button onClick={() => setActiveTab('ALL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ALL' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity size={14} /> Consolidado</button>
-        <button onClick={() => setActiveTab('BUSINESS')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Building2 size={14} /> Empresas</button>
-        <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><User size={14} /> Pessoal</button>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-full md:w-fit overflow-x-auto">
+          <button onClick={() => setActiveTab('ALL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ALL' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity size={14} /> Consolidado</button>
+          <button onClick={() => setActiveTab('BUSINESS')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Building2 size={14} /> Empresas</button>
+          <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><User size={14} /> Pessoal</button>
+        </div>
+
+        <button 
+          onClick={() => {
+            setFormData({
+              description: '', amount: '', category_id: '', scope: activeTab === 'PERSONAL' ? 'PERSONAL' : 'BUSINESS', company_id: companies[0]?.id || '',
+              date: new Date().toISOString().split('T')[0], due_date: new Date().toISOString().split('T')[0],
+              is_recurring: false, status: 'PENDING', type: 'EXPENSE', contact_email: ''
+            });
+            setEditingTransaction(null);
+            setShowAddModal(true);
+          }}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2"
+        >
+          <Plus size={16} /> Novo Lançamento
+        </button>
       </div>
 
       {/* Main Stats Grid */}
@@ -519,11 +576,12 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                    <th className="px-8 py-4">Categoria</th>
                    <th className="px-8 py-4 text-center">Status</th>
                    <th className="px-8 py-4 text-right">Valor</th>
+                   <th className="px-8 py-4 text-right">Ações</th>
                 </tr>
              </thead>
              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {viewData.transactions.length === 0 ? (
-                  <tr><td colSpan={5} className="px-8 py-12 text-center text-slate-400 text-xs font-bold italic">Nenhum lançamento encontrado para este período.</td></tr>
+                  <tr><td colSpan={6} className="px-8 py-12 text-center text-slate-400 text-xs font-bold italic">Nenhum lançamento encontrado para este período.</td></tr>
                 ) : (
                    viewData.transactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(t => (
                       <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors group">
@@ -543,6 +601,50 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                          <td className="px-8 py-4"><span className="px-2 py-1 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">{t.category}</span></td>
                          <td className="px-8 py-4 text-center">{t.status === 'PAID' ? <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full"><CheckCircle2 size={10}/> Pago</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full"><Clock size={10}/> Pendente</span>}</td>
                          <td className={`px-8 py-4 text-right font-black text-xs ${t.type === 'INCOME' ? 'text-emerald-600' : 'text-slate-800 dark:text-white'}`}>{t.type === 'EXPENSE' ? '-' : '+'} R$ {Number(t.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                         <td className="px-8 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button 
+                                 onClick={() => {
+                                   setFormData({
+                                     description: t.description,
+                                     amount: t.amount.toString(),
+                                     category_id: t.category_id || '',
+                                     scope: t.scope || 'BUSINESS',
+                                     company_id: t.company_id || '',
+                                     date: t.date,
+                                     due_date: t.due_date || t.date,
+                                     is_recurring: t.is_recurring || false,
+                                     status: t.status,
+                                     type: t.type,
+                                     contact_email: t.contact_email || ''
+                                   });
+                                   setEditingTransaction(t);
+                                   setShowAddModal(true);
+                                 }}
+                                 className="p-2 rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                               >
+                                 <ArrowUpRight size={16} />
+                               </button>
+                               <button 
+                                 onClick={() => {
+                                   if (!t.contact_email) {
+                                     alert("Por favor, cadastre um e-mail para este lançamento.");
+                                     return;
+                                   }
+                                   const subject = encodeURIComponent(`Lembrete de Pagamento: ${t.description}`);
+                                   const body = encodeURIComponent(`Olá,\n\nGostaríamos de lembrar sobre o pagamento de R$ ${t.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})} referente a ${t.description}, com vencimento em ${new Date(t.due_date || t.date).toLocaleDateString('pt-BR')}.\n\nAtenciosamente,\nEquipe Financeira`);
+                                   window.open(`mailto:${t.contact_email}?subject=${subject}&body=${body}`);
+                                 }}
+                                 className="p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                                 title="Enviar Cobrança"
+                               >
+                                 <Bell size={16} />
+                               </button>
+                               <button onClick={() => handleDelete(t.id)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
+                                 <ArrowDownRight size={16} />
+                               </button>
+                            </div>
+                         </td>
                       </tr>
                    ))
                 )}
@@ -550,6 +652,86 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
           </table>
         </div>
       </div>
+
+      {/* ADD/EDIT MODAL */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <button onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
+              <X size={20} />
+            </button>
+            
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-2xl flex items-center justify-center">
+                {editingTransaction ? <ArrowUpRight size={24} /> : <TrendingUp size={24} />}
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white">
+                  {editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
+                </h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Preencha os detalhes financeiros</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Lançamento</label>
+                <div className="flex gap-2 mt-1 mb-2">
+                  <button type="button" onClick={() => setFormData({...formData, type: 'INCOME'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'INCOME' ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingUp size={14} /> Receber</button>
+                  <button type="button" onClick={() => setFormData({...formData, type: 'EXPENSE'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'EXPENSE' ? 'bg-rose-500 text-white border-rose-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingDown size={14} /> Pagar</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Escopo</label>
+                <div className="flex gap-2 mt-1 mb-2">
+                  <button type="button" onClick={() => setFormData({...formData, scope: 'PERSONAL'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'PERSONAL' ? 'bg-teal-500 text-white border-teal-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><User size={14} /> Pessoal</button>
+                  <button type="button" onClick={() => setFormData({...formData, scope: 'BUSINESS'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'BUSINESS' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><Building2 size={14} /> Empresa</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail para Alertas/Cobrança</label>
+                <input type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.contact_email} onChange={e => setFormData({...formData, contact_email: e.target.value})} placeholder="exemplo@email.com" />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label>
+                <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label>
+                  <input type="number" step="0.01" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                  <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label>
+                  <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.category_id} onChange={e => setFormData({...formData, category_id: e.target.value})} required>
+                    <option value="">Selecione...</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label>
+                  <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2">
+                <ShieldCheck size={16} /> {editingTransaction ? 'Salvar Alterações' : 'Confirmar Lançamento'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
