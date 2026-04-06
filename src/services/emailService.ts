@@ -30,16 +30,16 @@ export const EmailService = {
   },
 
   /**
-   * Envia notificação de agendamento de exclusão de conta.
+   * Envia notificação de recuperação de senha.
    */
-  async sendDeletionNotice(email: string, name: string, deletionDate: string) {
+  async sendPasswordRecoveryEmail(email: string, name: string, password: string) {
     try {
       const { data, error } = await supabase.functions.invoke('send-email', {
         body: { 
-          type: 'DELETION_REQUEST',
+          type: 'PASSWORD_RECOVERY',
           email, 
           name, 
-          content: deletionDate // Passando a data como content
+          content: password // Passando a senha como content
         }
       });
 

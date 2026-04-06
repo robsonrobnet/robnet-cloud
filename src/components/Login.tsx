@@ -13,6 +13,7 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
   const [formData, setFormData] = useState({
     username: '', 
     password: '',
@@ -82,6 +83,37 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
     setIsLoading(true);
     setError(null);
     setEmailStatus('IDLE');
+
+    if (isRecovering) {
+      try {
+        if (!formData.email || !formData.email.includes('@')) throw new Error("E-mail válido é obrigatório.");
+        
+        const { data: user, error: searchError } = await supabase
+          .from('users')
+          .select('username, password, email')
+          .eq('email', formData.email.trim())
+          .single();
+
+        if (searchError || !user) throw new Error("E-mail não encontrado no sistema.");
+
+        setEmailStatus('SENDING');
+        const emailResult = await EmailService.sendPasswordRecoveryEmail(user.email, user.username, user.password);
+        
+        if (emailResult.success) {
+          setEmailStatus('SENT');
+          alert("E-mail de recuperação enviado com sucesso! Verifique sua caixa de entrada.");
+          setIsRecovering(false);
+        } else {
+          setEmailStatus('ERROR');
+          throw new Error("Erro ao enviar e-mail. Tente novamente mais tarde.");
+        }
+      } catch (err: any) {
+        setError(formatSupabaseError(err));
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     const cleanUsername = formData.username.trim();
     const cleanPassword = formData.password.trim();
@@ -234,28 +266,41 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
           
           <form onSubmit={handleAuth} className="space-y-4">
             <div className="space-y-3">
-              <div className="relative">
-                  <UserPlus className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                  <input type="text" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white font-bold text-sm outline-none" placeholder={isRegistering ? "Nome Completo" : "Usuário ou Chave"} required />
-              </div>
-              <div className="relative">
-                  <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                  <input type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white font-bold text-sm outline-none" placeholder="Senha" required />
-              </div>
+              {!isRecovering && (
+                <div className="relative">
+                    <UserPlus className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                    <input type="text" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white font-bold text-sm outline-none" placeholder={isRegistering ? "Nome Completo" : "Usuário ou Chave"} required={!isRecovering} />
+                </div>
+              )}
+              
+              {!isRecovering && (
+                <div className="relative">
+                    <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                    <input type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white font-bold text-sm outline-none" placeholder="Senha" required={!isRecovering} />
+                </div>
+              )}
 
-              {isRegistering && (
+              {(isRegistering || isRecovering) && (
                 <div className="space-y-3 animate-in slide-in-from-top-4 pt-2">
-                  <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="E-mail" required />
-                  <div className="grid grid-cols-2 gap-3">
-                      <input type="text" value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="WhatsApp" required />
-                      <input type="text" value={formData.document} onChange={e => setFormData({...formData, document: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="CPF/CNPJ" required />
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                    <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white text-xs" placeholder="E-mail" required />
                   </div>
-                  <select value={formData.plan} onChange={e => setFormData({...formData, plan: e.target.value as UserPlan})} className="w-full bg-slate-900 border border-white/10 rounded-2xl p-4 text-white text-xs outline-none appearance-none">
-                    <option value="FREE">Plano BÁSICO (Gratuito)</option>
-                    <option value="START">Plano START</option>
-                    <option value="PRO">Plano PRO</option>
-                    <option value="ENTERPRISE">Plano ENTERPRISE</option>
-                  </select>
+                  
+                  {isRegistering && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                          <input type="text" value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="WhatsApp" required />
+                          <input type="text" value={formData.document} onChange={e => setFormData({...formData, document: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="CPF/CNPJ" required />
+                      </div>
+                      <select value={formData.plan} onChange={e => setFormData({...formData, plan: e.target.value as UserPlan})} className="w-full bg-slate-900 border border-white/10 rounded-2xl p-4 text-white text-xs outline-none appearance-none">
+                        <option value="FREE">Plano BÁSICO (Gratuito)</option>
+                        <option value="START">Plano START</option>
+                        <option value="PRO">Plano PRO</option>
+                        <option value="ENTERPRISE">Plano ENTERPRISE</option>
+                      </select>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -263,12 +308,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
             {error && <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 text-[11px] text-rose-200 font-bold">{error}</div>}
             
             <button type="submit" disabled={isLoading} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-[1.5rem] py-4 font-black uppercase text-xs shadow-xl disabled:opacity-50 flex items-center justify-center gap-2">
-              {isLoading ? <Loader2 className="animate-spin" size={20} /> : (isRegistering ? 'Criar Conta' : 'Acessar Terminal')}
+              {isLoading ? <Loader2 className="animate-spin" size={20} /> : (isRecovering ? 'Recuperar Senha' : (isRegistering ? 'Criar Conta' : 'Acessar Terminal'))}
             </button>
             
-            <button type="button" onClick={() => { setIsRegistering(!isRegistering); setError(null); }} className="w-full text-[10px] text-slate-400 font-bold uppercase tracking-widest pt-2">
-                {isRegistering ? 'Já tenho acesso' : 'Novo por aqui? Criar Perfil'}
-            </button>
+            <div className="flex flex-col gap-2 pt-2">
+              <button type="button" onClick={() => { setIsRegistering(!isRegistering); setIsRecovering(false); setError(null); }} className="w-full text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                  {isRegistering ? 'Já tenho acesso' : 'Novo por aqui? Criar Perfil'}
+              </button>
+              
+              {!isRegistering && (
+                <button type="button" onClick={() => { setIsRecovering(!isRecovering); setIsRegistering(false); setError(null); }} className="w-full text-[10px] text-indigo-500 font-black uppercase tracking-widest">
+                    {isRecovering ? 'Voltar para o Login' : 'Esqueceu sua senha?'}
+                </button>
+              )}
+            </div>
           </form>
         </div>
       </div>
