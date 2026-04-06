@@ -1,9 +1,9 @@
 
 import React from 'react';
 import { 
-  LayoutDashboard, Receipt, MessageSquare, LogOut, ChevronRight, Shield, TrendingUp, TrendingDown, Lock, CreditCard, FileText, Crown, Clock
+  LayoutDashboard, Receipt, MessageSquare, LogOut, ChevronRight, Shield, TrendingUp, TrendingDown, Lock, CreditCard, FileText, Crown, Clock, BookOpen, ShieldCheck
 } from 'lucide-react';
-import { AppView, User } from '../types';
+import { AppView, User, Company } from '../types';
 
 interface SidebarProps {
   currentView: AppView;
@@ -11,11 +11,12 @@ interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   currentUser: User;
+  company?: Company;
   onLogout: () => void;
   t: any;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOpen, currentUser, onLogout, t }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOpen, currentUser, company, onLogout, t }) => {
   
   // LOGICA DE TRIAL E PLANOS
   const accessLevel = React.useMemo(() => {
@@ -108,7 +109,31 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
         allowed: canAccess('PROFESSIONAL'),
         reqLabel: 'Intermed.'
     },
+    { 
+        id: AppView.TUTORIAL, 
+        label: "Tutorial", 
+        icon: BookOpen, 
+        allowed: true,
+        reqLabel: 'Free'
+    },
+    { 
+        id: AppView.MASTER_CONFIG, 
+        label: "Master Config", 
+        icon: ShieldCheck, 
+        allowed: currentUser.is_master || currentUser.role === 'ADMIN',
+        reqLabel: 'Master'
+    },
   ];
+
+  // Filter menu based on enabled modules if company data is available
+  const filteredMenu = menu.filter(item => {
+    if (!company?.enabled_modules) return true;
+    // Always allow SETTINGS, TUTORIAL, MASTER_CONFIG, DASHBOARD for basic navigation
+    if ([AppView.SETTINGS, AppView.TUTORIAL, AppView.DASHBOARD].includes(item.id)) return true;
+    if (item.id === AppView.MASTER_CONFIG) return currentUser.is_master || currentUser.role === 'ADMIN';
+    
+    return company.enabled_modules.includes(item.id);
+  });
 
   const handleNav = (item: any) => {
     if (!item.allowed) {
@@ -140,7 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
           
           <div className="flex-1 space-y-1">
             <p className="text-[10px] font-black uppercase text-slate-400 mb-2 px-2 tracking-widest">Módulos</p>
-            {menu.map(item => (
+            {filteredMenu.map(item => (
               <button 
                 key={item.id} 
                 onClick={() => handleNav(item)} 

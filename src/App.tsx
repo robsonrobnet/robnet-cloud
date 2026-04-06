@@ -13,10 +13,13 @@ import ReceivablesManager from './components/ReceivablesManager';
 import CreditLoansManager from './components/CreditLoansManager';
 import NfseManager from './components/NfseManager';
 import StripeManager from './components/StripeManager';
+import MasterConfig from './components/MasterConfig';
+import Tutorial from './components/Tutorial';
 import Login from './components/Login';
 import { translations } from './lib/translations';
 import { FinancialService } from './services/financialService';
 import { supabase } from './lib/supabase';
+import { BookOpen, HelpCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -278,11 +281,24 @@ const App: React.FC = () => {
     });
   }, [filteredTransactions]);
 
+  const currentCompany = useMemo(() => {
+    return companies.find(c => c.id === currentUser?.company_id);
+  }, [companies, currentUser]);
+
   if (!currentUser) return <Login onLoginSuccess={setCurrentUser} t={t} />;
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-inter transition-colors duration-300">
-      <Sidebar currentView={view} setView={setView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={() => setCurrentUser(null)} t={t} />
+      <Sidebar 
+        currentView={view} 
+        setView={setView} 
+        isOpen={isSidebarOpen} 
+        setIsOpen={setIsSidebarOpen} 
+        currentUser={currentUser} 
+        company={currentCompany}
+        onLogout={() => setCurrentUser(null)} 
+        t={t} 
+      />
       <main className="flex-1 lg:ml-64 relative flex flex-col h-screen overflow-hidden">
         <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 md:px-10 shrink-0 z-30 transition-colors duration-300">
           <div className="flex items-center gap-4">
@@ -344,6 +360,10 @@ const App: React.FC = () => {
                <NfseManager currentUser={currentUser} />
             : view === AppView.STRIPE ?
                <StripeManager />
+            : view === AppView.MASTER_CONFIG ?
+               <MasterConfig />
+            : view === AppView.TUTORIAL ?
+               <Tutorial />
             : view === AppView.TRANSACTIONS ? 
               <TransactionList 
                 transactions={filteredTransactions} 
@@ -381,6 +401,19 @@ const App: React.FC = () => {
                 onUpdate={fetchData}
                 t={t} 
               />}
+          </div>
+          
+          {/* Global Tutorial Button Footer */}
+          <div className="mt-12 mb-8 flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-700">
+            <div className="h-[1px] flex-1 bg-slate-200 dark:bg-slate-800 max-w-[100px]"></div>
+            <button 
+              onClick={() => setView(AppView.TUTORIAL)}
+              className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full text-[10px] font-black text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all uppercase tracking-widest shadow-sm group"
+            >
+              <HelpCircle size={14} className="group-hover:animate-bounce" />
+              Precisa de ajuda? Abrir Tutorial
+            </button>
+            <div className="h-[1px] flex-1 bg-slate-200 dark:bg-slate-800 max-w-[100px]"></div>
           </div>
         </div>
       </main>

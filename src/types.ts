@@ -15,6 +15,7 @@ export interface Company {
   owner_id?: string;
   scheduled_deletion_date?: string;
   created_at: string;
+  enabled_modules?: string[]; // List of enabled AppView keys
 }
 
 export interface User {
@@ -31,6 +32,7 @@ export interface User {
   whatsapp?: string;
   document_number?: string;
   access_key?: string;
+  is_master?: boolean;
 }
 
 export interface Category {
@@ -94,7 +96,9 @@ export enum AppView {
   CHAT = 'CHAT',
   ADMIN = 'ADMIN',
   SETTINGS = 'SETTINGS',
-  STRIPE = 'STRIPE'
+  STRIPE = 'STRIPE',
+  TUTORIAL = 'TUTORIAL',
+  MASTER_CONFIG = 'MASTER_CONFIG'
 }
 
 export interface NfseClient {
