@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import { createServer as createViteServer } from "vite";
 import Stripe from "stripe";
 import * as dotenv from "dotenv";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -10,6 +11,41 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// --- SMTP CONFIGURATION ---
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || "mail.robnet.com.br",
+  port: parseInt(process.env.SMTP_PORT || "465"),
+  secure: true, // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER || "finaai@robnet.com.br",
+    pass: process.env.SMTP_PASS || "2298R@b161047#",
+  },
+});
+
+// --- EMAIL API ROUTE ---
+app.post("/api/send-email", async (req: Request, res: Response) => {
+  const { email, name, subject, html } = req.body;
+
+  if (!email || !html) {
+    return res.status(400).json({ error: "Email and content are required" });
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"FinanAI OS" <${process.env.SMTP_USER || "finaai@robnet.com.br"}>`,
+      to: email,
+      subject: subject || "Notificação FinanAI OS",
+      html: html,
+    });
+
+    console.log("Email sent: %s", info.messageId);
+    res.json({ success: true, messageId: info.messageId });
+  } catch (error: any) {
+    console.error("SMTP Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Lazy Stripe Initialization
 let stripeClient: Stripe | null = null;
