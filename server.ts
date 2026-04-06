@@ -23,11 +23,23 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "mail.robnet.com.br",
   port: parseInt(process.env.SMTP_PORT || "465"),
-  secure: true, // true for 465, false for other ports
+  secure: (process.env.SMTP_PORT || "465") === "465", // true for 465, false for other ports
   auth: {
     user: process.env.SMTP_USER || "finaai@robnet.com.br",
     pass: process.env.SMTP_PASS || "2298R@b161047#",
   },
+  tls: {
+    rejectUnauthorized: false // Often needed for custom mail servers
+  }
+});
+
+// Verify transporter connection on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("SMTP Transporter Error:", error);
+  } else {
+    console.log("SMTP Transporter is ready to send emails");
+  }
 });
 
 // --- EMAIL API ROUTE ---
@@ -70,7 +82,21 @@ app.post("/api/test-email", async (req: Request, res: Response) => {
   
   if (!email) return res.status(400).json({ error: "Target email is required" });
 
+  console.log(`[SMTP] Attempting test email to: ${email}`);
+
   try {
+    // Verify connection first
+    await new Promise((resolve, reject) => {
+      transporter.verify((error, success) => {
+        if (error) {
+          console.error("[SMTP] Verification failed:", error);
+          reject(error);
+        } else {
+          resolve(success);
+        }
+      });
+    });
+
     const info = await transporter.sendMail({
       from: `"FinanAI Test" <${process.env.SMTP_USER || "finaai@robnet.com.br"}>`,
       to: email,
@@ -85,9 +111,17 @@ app.post("/api/test-email", async (req: Request, res: Response) => {
         </div>
       `,
     });
+
+    console.log("[SMTP] Test email sent successfully:", info.messageId);
     res.json({ success: true, messageId: info.messageId });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error("[SMTP] Test Error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message || "Unknown SMTP Error",
+      code: error.code,
+      command: error.command
+    });
   }
 });
 

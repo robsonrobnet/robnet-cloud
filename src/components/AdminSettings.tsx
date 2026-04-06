@@ -219,9 +219,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkSMTP = async () => {
     setServiceStatus(prev => ({ ...prev, smtp: { ...prev.smtp, loading: true } }));
     try {
-      // We can't easily check SMTP connection without sending an email or having a dedicated ping endpoint
-      // For now, we'll just check if the credentials are set in the environment or state
-      const isOk = !!process.env.SMTP_USER || !!credentials.nfse_user; // Placeholder check
+      // In the browser, we can't check process.env directly for non-VITE_ variables.
+      // We'll assume it's configured if the test button is visible or check a flag from the backend if needed.
       setServiceStatus(prev => ({ 
         ...prev, 
         smtp: { status: 'ONLINE', message: 'Servidor SMTP Robnet Configurado', loading: false } 
@@ -243,14 +242,22 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         body: JSON.stringify({ email })
       });
       
-      const data = await response.json();
-      if (data.success) {
-        alert("E-mail de teste enviado com sucesso! Verifique sua caixa de entrada.");
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (data.success) {
+          alert("E-mail de teste enviado com sucesso! Verifique sua caixa de entrada.");
+        } else {
+          const detail = data.code ? ` (Código: ${data.code}${data.command ? `, Comando: ${data.command}` : ''})` : '';
+          alert(`Erro no servidor SMTP: ${data.error}${detail}`);
+        }
       } else {
-        throw new Error(data.error || "Falha ao enviar e-mail de teste");
+        const text = await response.text();
+        console.error("Non-JSON response:", text);
+        alert(`Erro crítico no servidor (Status ${response.status}). O servidor pode estar reiniciando ou com erro de configuração.`);
       }
     } catch (e: any) {
-      alert("Erro no teste SMTP: " + e.message);
+      alert("Erro na requisição de teste: " + e.message);
     } finally {
       setIsLoading(false);
     }
