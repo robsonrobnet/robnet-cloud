@@ -4,12 +4,12 @@ export const EmailService = {
   /**
    * Envia e-mail via API local (SMTP).
    */
-  async sendEmail(email: string, subject: string, html: string) {
+  async sendEmail(email: string, subject: string, html: string, attachments?: { filename: string, content: string, contentType: string }[]) {
     try {
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, subject, html })
+        body: JSON.stringify({ email, subject, html, attachments })
       });
 
       if (!response.ok) {
@@ -64,5 +64,35 @@ export const EmailService = {
       </div>
     `;
     return this.sendEmail(email, "Recuperação de Senha - FinanAI OS", html);
+  },
+
+  /**
+   * Envia e-mail com XML da NFS-e.
+   */
+  async sendNfseEmail(email: string, clientName: string, nfeNumber: string, xml: string) {
+    const html = `
+      <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #4f46e5; text-align: center;">Nota Fiscal de Serviço Eletrônica</h2>
+        <p>Olá <strong>${clientName}</strong>,</p>
+        <p>Você está recebendo a NFS-e Nº <strong>${nfeNumber}</strong> emitida por um de nossos parceiros através do sistema <strong>FinanAI OS</strong>.</p>
+        <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; margin: 20px 0; text-align: center;">
+          <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Documento em Anexo:</p>
+          <p style="margin: 10px 0 0; font-size: 18px; font-weight: 900; color: #4f46e5;">NFS-e_${nfeNumber}.xml</p>
+        </div>
+        <p style="font-size: 14px; color: #666;">O arquivo XML da nota fiscal está anexado a este e-mail para sua conferência e arquivo.</p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+        <p style="font-size: 11px; color: #999; text-align: center;">&copy; 2026 FinanAI OS - Gestão Fiscal Inteligente</p>
+      </div>
+    `;
+    
+    const attachments = [
+      {
+        filename: `NFSe_${nfeNumber}.xml`,
+        content: xml,
+        contentType: 'application/xml'
+      }
+    ];
+
+    return this.sendEmail(email, `NFS-e Nº ${nfeNumber} - FinanAI OS`, html, attachments);
   }
 };

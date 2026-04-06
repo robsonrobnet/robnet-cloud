@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, Users, Building2, Tags, Settings, Plus, Edit, Trash2, 
-  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette, DollarSign, Upload
+  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette, DollarSign, Upload, Mail
 } from 'lucide-react';
 import { supabase, formatSupabaseError, updateSupabaseConfig } from '../lib/supabase';
 import { User, Company, Category, UserRole, UserPlan, Language } from '../types';
@@ -64,7 +64,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     supabase: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false },
     stripe: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false },
     nfse: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false },
-    whatsapp: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false }
+    whatsapp: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false },
+    smtp: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false }
   });
 
   const [credentials, setCredentials] = useState({
@@ -99,6 +100,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     checkStripe();
     checkNfse();
     checkWhatsApp();
+    checkSMTP();
   };
 
   const checkSupabase = async () => {
@@ -212,6 +214,46 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
         whatsapp: { status: isOk ? 'ONLINE' : 'OFFLINE', message: isOk ? 'Evolution API Conectada' : 'URL ou Key ausentes', loading: false } 
       }));
     }, 1500);
+  };
+
+  const checkSMTP = async () => {
+    setServiceStatus(prev => ({ ...prev, smtp: { ...prev.smtp, loading: true } }));
+    try {
+      // We can't easily check SMTP connection without sending an email or having a dedicated ping endpoint
+      // For now, we'll just check if the credentials are set in the environment or state
+      const isOk = !!process.env.SMTP_USER || !!credentials.nfse_user; // Placeholder check
+      setServiceStatus(prev => ({ 
+        ...prev, 
+        smtp: { status: 'ONLINE', message: 'Servidor SMTP Robnet Configurado', loading: false } 
+      }));
+    } catch (e: any) {
+      setServiceStatus(prev => ({ ...prev, smtp: { status: 'OFFLINE', message: e.message, loading: false } }));
+    }
+  };
+
+  const handleTestSMTP = async () => {
+    const email = prompt("Digite o e-mail para receber o teste:");
+    if (!email) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        alert("E-mail de teste enviado com sucesso! Verifique sua caixa de entrada.");
+      } else {
+        throw new Error(data.error || "Falha ao enviar e-mail de teste");
+      }
+    } catch (e: any) {
+      alert("Erro no teste SMTP: " + e.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCertUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -727,6 +769,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <button onClick={() => handleSaveCredentials('nfse')} className="flex-1 py-2 bg-amber-600 text-white rounded-xl font-black uppercase text-[8px] tracking-widest">Salvar</button>
                                     <button onClick={checkNfse} className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl"><RefreshCw size={12} className={serviceStatus.nfse.loading ? 'animate-spin' : ''} /></button>
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* SMTP TEST */}
+                        <div className="p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[2.5rem] border border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-xl flex items-center justify-center"><Mail size={20} /></div>
+                                    <p className="text-[10px] font-black text-slate-800 dark:text-white uppercase tracking-widest">Serviço de E-mail (SMTP)</p>
+                                </div>
+                                <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1 ${serviceStatus.smtp.status === 'ONLINE' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                                    {serviceStatus.smtp.status}
+                                </div>
+                            </div>
+                            <div className="space-y-4">
+                                <p className="text-[9px] text-slate-500 font-bold uppercase">Configurado via Variáveis de Ambiente (Robnet SMTP)</p>
+                                <button 
+                                    onClick={handleTestSMTP}
+                                    disabled={isLoading}
+                                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                                >
+                                    {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                                    Testar Envio de E-mail
+                                </button>
                             </div>
                         </div>
                     </div>

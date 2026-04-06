@@ -8,6 +8,7 @@ import {
   MapPin, Key
 } from 'lucide-react';
 import { supabase, formatSupabaseError } from '../lib/supabase';
+import { EmailService } from '../services/emailService';
 import { User as UserType, NfseClient, NfseService, NfseConfig, NfseRps } from '../types';
 
 interface NfseManagerProps {
@@ -229,6 +230,34 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
     } catch (e: any) { alert("ERRO: " + formatSupabaseError(e)); setLoading(false); } 
   };
 
+  const handleSendEmail = async (rps: ExtendedRps) => {
+    if (!rps.nfse_clients?.email) {
+      alert("O tomador não possui e-mail cadastrado.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const xml = generateXml(rps, config!);
+      const result = await EmailService.sendNfseEmail(
+        rps.nfse_clients.email,
+        rps.nfse_clients.name,
+        rps.nfe_number?.toString() || rps.rps_number.toString(),
+        xml
+      );
+
+      if (result.success) {
+        alert("E-mail enviado com sucesso!");
+      } else {
+        throw new Error("Falha ao enviar e-mail.");
+      }
+    } catch (e: any) {
+      alert("Erro ao enviar e-mail: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const inputClass = "w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all";
 
   return (
@@ -400,6 +429,9 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
                                             <td className="px-8 py-5 text-center">
                                                 <div className="flex justify-center gap-2">
                                                     <button onClick={() => setSelectedNote(h)} className="p-2 text-slate-400 hover:text-indigo-500 bg-slate-100 dark:bg-slate-800 rounded-xl transition-all"><Eye size={16}/></button>
+                                                    {h.transmission_status === 'AUTHORIZED' && (
+                                                        <button onClick={() => handleSendEmail(h)} className="p-2 text-slate-400 hover:text-emerald-500 bg-slate-100 dark:bg-slate-800 rounded-xl transition-all"><Mail size={16}/></button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -661,6 +693,9 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
                     <div className="p-10 border-t border-slate-100 dark:border-slate-800 flex gap-6 bg-white dark:bg-slate-900 rounded-b-[3rem]">
                         <button className="flex-1 bg-slate-100 dark:bg-slate-800 py-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 group transition-all">
                            <Download size={20} className="group-hover:-translate-y-1 transition-transform" /> Baixar XML Assinado
+                        </button>
+                        <button onClick={() => handleSendEmail(selectedNote)} className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3 group transition-all">
+                           <Mail size={20} className="group-hover:scale-110 transition-transform" /> Enviar por E-mail
                         </button>
                         <button className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3 group transition-all">
                            <Printer size={20} className="group-hover:scale-110 transition-transform" /> Imprimir DANFE Paulistana
