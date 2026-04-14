@@ -236,6 +236,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
     setIsLoading(true);
     try {
+      // First, check health
+      const healthRes = await fetch('/api/health');
+      if (!healthRes.ok) {
+        throw new Error(`Servidor inacessível (Status ${healthRes.status})`);
+      }
+      const healthData = await healthRes.json();
+      console.log("Backend Health:", healthData);
+
       const response = await fetch('/api/test-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

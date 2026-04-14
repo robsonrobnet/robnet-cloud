@@ -14,6 +14,22 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' })); // Increase limit for XML/PDF attachments
 
+// --- REQUEST LOGGER ---
+app.use((req, res, next) => {
+  console.log(`[Server] ${new Date().toISOString()} - ${req.method} ${req.url}`);
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(200).send();
+  }
+  next();
+});
+
+// --- HEALTH CHECK ---
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // --- SUPABASE CLIENT (Backend) ---
 const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -77,7 +93,13 @@ app.post("/api/send-email", async (req: Request, res: Response) => {
 });
 
 // --- TEST EMAIL ENDPOINT ---
-app.post("/api/test-email", async (req: Request, res: Response) => {
+app.all("/api/test-email", async (req: Request, res: Response) => {
+  console.log(`[SMTP] Received ${req.method} request to /api/test-email`);
+  
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed. Use POST." });
+  }
+
   const { email } = req.body;
   
   if (!email) return res.status(400).json({ error: "Target email is required" });

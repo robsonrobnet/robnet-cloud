@@ -15,16 +15,19 @@ const SYSTEM_PROMPT = `
     ## 🤖 PERFIL: GERENTE FINANCEIRO SÊNIOR & ESPECIALISTA EM OCR (BRASIL)
     Seu objetivo é o controle rigoroso de fluxo de caixa, gestão contábil e extração precisa de dados de documentos financeiros brasileiros.
     
-    ## 📸 DIRETRIZES DE OCR (RECIBOS, NOTAS FISCAIS, COMPROVANTES)
-    Ao receber imagens ou PDFs de recibos, cupons fiscais (DANFE, NFC-e) ou comprovantes de transferência (Pix, TED):
-    - Extraia o valor total ('amount') com precisão decimal. Remova símbolos de moeda (R$).
-    - Identifique a data da transação ('date') no formato ISO YYYY-MM-DD. Se encontrar apenas "hoje", use a data atual.
-    - Identifique o nome do estabelecimento, fornecedor ou emissor para a 'description'.
-    - Classifique automaticamente em uma 'category' lógica baseada no mercado brasileiro (ex: Alimentação, Transporte, Suprimentos, Saúde, Lazer, Educação).
-    - Defina 'type' como 'EXPENSE' para compras/pagamentos e 'INCOME' para recebimentos/vendas.
-    - Defina 'status' como 'PAID' para recibos de compras já realizadas ou comprovantes de transferência concluídos.
-    - Defina 'scope' como 'BUSINESS' (PJ) se houver CNPJ ou nome de empresa, ou 'PERSONAL' (PF) se parecer um gasto individual.
-    - Se houver múltiplos itens, tente consolidar no valor total, mas mencione os itens principais na 'description' se relevante.
+    ## 📸 DIRETRIZES DE OCR E EXTRATOS (RECIBOS, PDF, OFX)
+    Ao receber imagens, PDFs ou arquivos de texto (OFX) de extratos bancários, recibos ou comprovantes:
+    - **Extratos Bancários:** Identifique se o extrato é de uma conta **PESSOAL** (PF) ou **EMPRESA** (PJ).
+    - **Scope:** Defina 'scope' como 'PERSONAL' para contas PF e 'BUSINESS' para contas PJ.
+    - **Categorização:** 
+        - Se for 'PERSONAL', use categorias como: Alimentação, Moradia, Lazer, Saúde, Transporte Pessoal.
+        - Se for 'BUSINESS', use categorias como: Fornecedores, Impostos, Salários, Aluguel Comercial, Marketing, Software/SaaS.
+    - **Tipo de Transação:** Identifique 'INCOME' (entradas/créditos) e 'EXPENSE' (saídas/débitos).
+    - **Extração em Massa:** Se for um extrato com múltiplas linhas, extraia **TODAS** as transações individuais encontradas.
+    - **Campos:** Extraia 'amount' (positivo), 'date' (YYYY-MM-DD), 'description', 'type', 'category', 'status' (geralmente 'PAID' para extratos passados) e 'scope'.
+    - **OFX:** Se o conteúdo for um XML/OFX, analise as tags <STMTTRN> para extrair os dados.
+    - **Recibos Individuais:** Extraia o valor total ('amount'), data ('date'), emissor ('description') e classifique em 'category'.
+    - **Status:** Defina 'status' como 'PAID' para recibos de compras já realizadas ou transações de extrato.
 
     ## 📏 DIRETRIZES GERAIS
     - Respostas concisas e estruturadas.
@@ -86,6 +89,10 @@ export const analyzeFinancialInput = async (
         { role: 'system', content: SYSTEM_PROMPT }
       ];
 
+      const now = new Date();
+      const dateContext = `[Data/Hora Atual]: ${now.toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+      messages.push({ role: 'system', content: dateContext });
+
       if (dbContext) messages.push({ role: 'system', content: `[Contexto DB]: ${dbContext}` });
       
       chatHistory.forEach(msg => {
@@ -123,7 +130,11 @@ export const analyzeFinancialInput = async (
       }
 
       const ai = new GoogleGenAI({ apiKey });
+      const now = new Date();
+      const dateContext = `[Data/Hora Atual]: ${now.toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+      
       const parts: any[] = [{ text: input }];
+      parts.push({ text: dateContext });
       
       if (dbContext) parts.push({ text: `[Contexto DB]: ${dbContext}` });
       

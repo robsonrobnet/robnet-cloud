@@ -32,7 +32,16 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguage] = useState<Language>('pt');
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
   
+  // Real-time Clock Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Theme State
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
@@ -303,7 +312,14 @@ const App: React.FC = () => {
         <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 md:px-10 shrink-0 z-30 transition-colors duration-300">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"><Menu size={24} /></button>
-            <h1 className="text-lg font-black text-slate-800 dark:text-white tracking-tight uppercase hidden md:block">FinanAI OS / {view}</h1>
+            <div className="hidden md:block">
+               <h1 className="text-lg font-black text-slate-800 dark:text-white tracking-tight uppercase">FinanAI OS / {view}</h1>
+               <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  <span>{currentTime.toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', day: '2-digit', month: 'long' })}</span>
+                  <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                  <span className="text-emerald-500 font-black">{currentTime.toLocaleTimeString(language === 'pt' ? 'pt-BR' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+               </div>
+            </div>
           </div>
           
           {(view === AppView.DASHBOARD || view === AppView.TRANSACTIONS) && (

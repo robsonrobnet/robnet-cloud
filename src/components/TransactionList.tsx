@@ -164,52 +164,94 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
     setIsScanning(true);
     try {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      
+      if (file.name.toLowerCase().endsWith('.ofx')) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsDataURL(file);
+      }
+
       reader.onload = async () => {
-        const base64Data = reader.result as string;
-        setScannedImagePreview(base64Data);
-        const attachment = { mimeType: file.type || 'image/jpeg', data: base64Data };
+        const fileContent = reader.result as string;
+        let attachment = undefined;
+        let promptText = "Extraia os dados deste recibo/comprovante para adicionar uma nova transação.";
+
+        if (file.name.toLowerCase().endsWith('.ofx')) {
+          promptText = `Analise este arquivo OFX de extrato bancário e extraia TODAS as transações. Conteúdo: \n\n ${fileContent}`;
+        } else {
+          setScannedImagePreview(fileContent);
+          attachment = { mimeType: file.type || 'image/jpeg', data: fileContent };
+          if (file.type === 'application/pdf') {
+            promptText = "Analise este extrato em PDF e extraia TODAS as transações individuais encontradas.";
+          }
+        }
         
-        const result = await analyzeFinancialInput(
-          "Extraia os dados deste recibo/comprovante para adicionar uma nova transação.", 
-          attachment, 
-          'pt'
-        );
+        const result = await analyzeFinancialInput(promptText, attachment, 'pt');
 
         if (result.extractedTransactions && result.extractedTransactions.length > 0) {
-          const t = result.extractedTransactions[0];
-          
-          // Find matching category
-          let resolvedCategoryId = undefined;
-          if (t.category) {
-              const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
-              if (found) resolvedCategoryId = found.id;
-          }
+          if (result.extractedTransactions.length === 1) {
+            const t = result.extractedTransactions[0];
+            let resolvedCategoryId = undefined;
+            if (t.category) {
+                const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
+                if (found) resolvedCategoryId = found.id;
+            }
 
-          setEditingTransaction({
-            id: 'new',
-            user_id: '',
-            company_id: companies[0]?.id || '',
-            description: t.description || 'Nova Transação',
-            amount: t.amount || 0,
-            type: t.type || 'EXPENSE',
-            status: t.status || 'PAID',
-            category: t.category || 'Outros',
-            category_id: resolvedCategoryId,
-            scope: t.scope || 'BUSINESS',
-            date: t.date || new Date().toISOString().split('T')[0],
-            due_date: t.date || new Date().toISOString().split('T')[0]
-          });
-          setIsEditModalOpen(true);
+            setEditingTransaction({
+              id: 'new',
+              user_id: '',
+              company_id: companies[0]?.id || '',
+              description: t.description || 'Nova Transação',
+              amount: t.amount || 0,
+              type: t.type || 'EXPENSE',
+              status: t.status || 'PAID',
+              category: t.category || 'Outros',
+              category_id: resolvedCategoryId,
+              scope: t.scope || 'BUSINESS',
+              date: t.date || new Date().toISOString().split('T')[0],
+              due_date: t.date || new Date().toISOString().split('T')[0]
+            });
+            setIsEditModalOpen(true);
+          } else {
+            // Bulk Import
+            const confirmImport = confirm(`Foram encontradas ${result.extractedTransactions.length} transações. Deseja importar todas agora?`);
+            if (confirmImport) {
+              let importedCount = 0;
+              for (const t of result.extractedTransactions) {
+                let resolvedCategoryId = undefined;
+                if (t.category) {
+                    const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
+                    if (found) resolvedCategoryId = found.id;
+                }
+
+                const payload = {
+                  description: t.description || 'Importado',
+                  amount: Number(t.amount) || 0,
+                  status: t.status || 'PAID',
+                  date: t.date || new Date().toISOString().split('T')[0],
+                  due_date: t.date || t.due_date || new Date().toISOString().split('T')[0],
+                  category_id: resolvedCategoryId,
+                  category: t.category || 'Outros',
+                  scope: t.scope || 'BUSINESS',
+                  company_id: companies[0]?.id,
+                  type: t.type || 'EXPENSE'
+                };
+                await onAdd(payload);
+                importedCount++;
+              }
+              alert(`${importedCount} transações importadas com sucesso!`);
+              onUpdate();
+            }
+          }
         } else {
-          alert("Não foi possível extrair os dados do recibo. Tente novamente com uma imagem mais nítida.");
+          alert("Não foi possível extrair dados do arquivo. Verifique se o formato está correto.");
         }
         setIsScanning(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
       };
     } catch (error) {
-      console.error("Error scanning receipt:", error);
-      alert("Erro ao processar o recibo.");
+      console.error("Error processing file:", error);
+      alert("Erro ao processar o arquivo.");
       setIsScanning(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -499,7 +541,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                  type="file" 
                  ref={fileInputRef} 
                  className="hidden" 
-                 accept="image/*,.pdf" 
+                 accept="image/*,.pdf,.ofx" 
                  onChange={handleFileSelect} 
                />
                <button 
