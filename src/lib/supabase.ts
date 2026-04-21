@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Fallback credentials if localStorage is empty
+// Fallback credentials if environment and localStorage are empty
 const DEFAULT_URL = 'https://uifexroywtnmelgxfbxc.supabase.co';
 const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpZmV4cm95d3RubWVsZ3hmYnhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MTM4MzQsImV4cCI6MjA4MzQ4OTgzNH0.y9RCTh84rzj7chgvj-wDqZLIafl43djujOpw5GD6PUI';
 
-let supabaseUrl = localStorage.getItem('finanai_db_url') || DEFAULT_URL;
-let supabaseAnonKey = localStorage.getItem('finanai_db_key') || DEFAULT_KEY;
+const supabaseUrl = localStorage.getItem('finanai_db_url') || import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL;
+const supabaseAnonKey = localStorage.getItem('finanai_db_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_KEY;
 
 /**
  * Robust error formatter for Supabase/Postgrest errors.

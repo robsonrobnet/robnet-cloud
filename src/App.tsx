@@ -140,6 +140,7 @@ const App: React.FC = () => {
           // Usando cost_type para manter compatibilidade com a interface Transaction
           return { ...t, status, cost_type: t.cost_type, scope: t.scope || 'BUSINESS' };
         });
+        console.log(`Neural Sync Complete: ${processedTransactions.length} items loaded for company ${currentUser.company_id}`);
         setTransactions(processedTransactions);
       }
 
@@ -158,8 +159,6 @@ const App: React.FC = () => {
   const handleAddTransaction = async (newTrans: any) => {
     if (!currentUser) return;
     try {
-      console.log("Processing AI Input:", newTrans);
-
       let matchingCategory = categories.find(c => c.id === newTrans.category_id);
       if (!matchingCategory && newTrans.category) {
         matchingCategory = categories.find(c => c.name.toLowerCase() === newTrans.category.toLowerCase());
@@ -197,20 +196,29 @@ const App: React.FC = () => {
       }
       if (isNaN(finalAmount)) finalAmount = 0;
       
+      const finalDueDate = newTrans.due_date || finalDate;
+      const isDueOnFirst = finalDueDate.endsWith('-01');
+      
+      // Regra de Negócio: Pagamentos/Recebimentos no dia 1º são marcados como PAGO automaticamente.
+      // Regra de Negócio: Recebíveis (INCOME) são confirmados como PAGO após submissão.
+      let finalStatus = newTrans.status || 'PAID';
+      if (isDueOnFirst || newTrans.type === 'INCOME') {
+          finalStatus = 'PAID';
+      }
+
       const payload = {
         user_id: currentUser.id,
-        company_id: newTrans.company_id || currentUser.company_id, // Allow override
+        company_id: newTrans.company_id || currentUser.company_id,
         category_id: matchingCategory?.id || undefined,
         category: matchingCategory?.name || newTrans.category || 'Outros', 
         description: newTrans.description ? String(newTrans.description) : 'Transação Importada',
         amount: Math.abs(finalAmount),
         type: newTrans.type || 'EXPENSE',
-        status: newTrans.status || 'PAID',
-        // Corrigido: usando cost_type da interface Transaction
+        status: finalStatus,
         cost_type: newTrans.cost_type || 'VARIABLE',
         scope: newTrans.scope || 'BUSINESS',
         date: finalDate,
-        due_date: newTrans.due_date || finalDate,
+        due_date: finalDueDate,
         is_recurring: !!newTrans.is_recurring,
         recurrence_period: newTrans.recurrence_period,
         recurrence_limit: newTrans.recurrence_limit,
@@ -219,16 +227,55 @@ const App: React.FC = () => {
         contact_email: newTrans.contact_email
       };
       
-      const response = await FinancialService.addTransaction(payload);
-      const { data, error } = response;
-
+      const { error } = await FinancialService.addTransaction(payload);
       if (error) throw error;
-      
-      // Atualiza dados após inserção
-      fetchData();
+      await fetchData();
     } catch (e: any) { 
       console.error("Critical error in handleAddTransaction:", e); 
       alert("Erro ao registrar lançamento: " + (e.message || "Erro desconhecido"));
+    }
+  };
+
+  const handleAddBulkTransactions = async (transList: any[]) => {
+    if (!currentUser) return;
+    try {
+      const payloads = transList.map(item => {
+          let finalDate = item.date;
+          if (!finalDate) finalDate = new Date().toISOString().split('T')[0];
+          const finalDueDate = item.due_date || finalDate;
+          const isDueOnFirst = finalDueDate.endsWith('-01');
+          
+          // Regra de Negócio: Dia 1º ou Recebível -> Pago
+          let finalStatus = item.status || 'PAID';
+          if (isDueOnFirst || item.type === 'INCOME') {
+              finalStatus = 'PAID';
+          }
+          
+          return {
+            user_id: currentUser.id,
+            company_id: item.company_id || currentUser.company_id,
+            category_id: item.category_id,
+            category: item.category || 'Outros',
+            description: item.description || 'Importação em Lote',
+            amount: Math.abs(Number(item.amount) || 0),
+            type: item.type || 'EXPENSE',
+            status: finalStatus,
+            cost_type: item.cost_type || 'VARIABLE',
+            scope: item.scope || 'BUSINESS',
+            date: finalDate,
+            due_date: finalDueDate,
+            is_recurring: !!item.is_recurring,
+            recurrence_period: item.recurrence_period,
+            recurrence_limit: item.recurrence_limit
+          };
+      });
+
+      const { error } = await FinancialService.batchAddTransactions(payloads as any);
+      if (error) throw error;
+      await fetchData();
+    } catch (e: any) {
+       console.error("Critical error in handleAddBulkTransactions:", e);
+       alert("Erro no processamento em lote: " + (e.message || "Erro desconhecido"));
     }
   };
 
@@ -391,6 +438,7 @@ const App: React.FC = () => {
               <div className="h-[calc(100vh-12rem)]">
                 <ChatInterface 
                   onAddTransaction={handleAddTransaction} 
+                  onAddBulkTransactions={handleAddBulkTransactions}
                   onSaveMessage={handleSaveMessage} 
                   messages={messages} 
                   setMessages={setMessages} 

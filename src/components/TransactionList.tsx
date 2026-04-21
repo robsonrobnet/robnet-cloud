@@ -124,10 +124,18 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
     if (!editingTransaction) return;
 
     try {
+      const isDueOnFirst = editingTransaction.due_date?.endsWith('-01') || editingTransaction.date?.endsWith('-01');
+      let finalStatus = editingTransaction.status;
+      
+      // Regras de Negócio: Dia 1º ou Recebível -> Pago
+      if (isDueOnFirst || editingTransaction.type === 'INCOME') {
+          finalStatus = 'PAID';
+      }
+
       const payload = {
         description: editingTransaction.description,
         amount: Number(editingTransaction.amount),
-        status: editingTransaction.status,
+        status: finalStatus,
         date: editingTransaction.date,
         due_date: editingTransaction.due_date || editingTransaction.date,
         category_id: editingTransaction.category_id || undefined,

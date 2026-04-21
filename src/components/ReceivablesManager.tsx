@@ -54,8 +54,17 @@ const ReceivablesManager: React.FC<ReceivablesManagerProps> = ({ defaultMode, tr
     e.preventDefault();
     setProcessingId('saving');
     try {
+      const isDueOnFirst = formData.due_date?.endsWith('-01') || formData.date?.endsWith('-01');
+      let finalStatus = formData.status;
+      
+      // Regras de Negócio: Dia 1º ou Recebível -> Pago
+      if (isDueOnFirst || formData.type === 'INCOME') {
+          finalStatus = 'PAID';
+      }
+
       const payload = {
         ...formData,
+        status: finalStatus,
         amount: Number(formData.amount),
         type: formData.type,
         category: categories.find(c => c.id === formData.category_id)?.name || 'Outros',

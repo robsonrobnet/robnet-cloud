@@ -81,12 +81,19 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
   const summary = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
       const amount = Number(t.amount) || 0;
+      const isPaid = t.status === 'PAID';
+      
       if (t.type === 'INCOME') {
-        acc.totalIncome += amount;
-        if (t.scope === 'BUSINESS') acc.businessIncome += amount;
-        else acc.personalIncome += amount;
+        if (isPaid) {
+          acc.totalIncome += amount;
+          acc.balance += amount;
+          if (t.scope === 'BUSINESS') acc.businessIncome += amount;
+          else acc.personalIncome += amount;
+        }
       } else {
+        // Para despesas, subtraímos do balanço e somamos ao total de gastos (geralmente regime de caixa/competência misto no dashboard)
         acc.totalExpenses += amount;
+        acc.balance -= amount;
         if (t.scope === 'BUSINESS') acc.businessExpenses += amount;
         else acc.personalExpenses += amount;
       }
@@ -116,7 +123,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
     return { 
       income: summary.totalIncome, 
       expense: summary.totalExpenses, 
-      balance: summary.totalIncome - summary.totalExpenses, 
+      balance: summary.balance, 
       transactions: filteredTransactions 
     };
   };

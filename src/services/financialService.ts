@@ -6,6 +6,29 @@ import { Transaction, Category, ChatMessage, FinancialSummary, User } from '../t
 
 export const FinancialService = {
   /**
+   * Diagnostic: Check connection and table presence
+   */
+  async checkConnection() {
+    try {
+        const url = localStorage.getItem('finanai_db_url') || import.meta.env.VITE_SUPABASE_URL || "DEFAULT";
+        console.log("Supabase Diagnostic:", { url: url.substring(0, 30) + "..." });
+        
+        const { data, error, status } = await supabase.from('transactions').select('id').limit(1);
+        
+        if (error) {
+            console.error("Connection Check Failed:", error);
+            return { status: 'ERROR', message: formatSupabaseError(error) };
+        }
+        
+        console.log("Database reachable. Status:", status, "Data found:", data?.length ? "Yes" : "No (Empty Table)");
+        return { status: 'OK', count: data?.length || 0 };
+    } catch (e) {
+        console.error("Critical Connection Error:", e);
+        return { status: 'CRITICAL', message: String(e) };
+    }
+  },
+
+  /**
    * Fetch transactions with optimized filtering
    */
   async getTransactions(companyId: string, userId: string, role: string) {
@@ -212,35 +235,91 @@ export const FinancialService = {
         throw new Error("Erro de Segurança: Tentativa de criar transação sem vínculo empresarial (company_id missing).");
     }
 
-    // 1. INSERT
-    const { data, error } = await supabase
+    console.log("Attempting Insert:", payload.description, payload.amount);
+
+    // 1. PRIMARY INSERT (Full Payload)
+    const { data: fullData, error: fullError } = await supabase
       .from('transactions')
       .insert([payload])
       .select()
       .maybeSingle();
 
-    if (error) {
-        // Fallback for legacy schema or missing columns
-        console.warn("Retrying transaction insert without advanced fields due to error:", error.message);
-        const { 
-            installment_current, 
-            installment_total, 
-            recurrence_period, 
-            recurrence_limit, 
-            cost_type, 
-            scope, 
-            ...legacyPayload 
-        } = payload as any;
-        
-        const retry = await supabase.from('transactions').insert([legacyPayload]).select().maybeSingle();
-        if (retry.error) throw retry.error;
-        return { data: retry.data, error: null };
+    if (!fullError) {
+        if (fullData) this._generateFutureTransactions(fullData).catch(console.warn);
+        return { data: fullData, error: null };
     }
 
-    // Trigger Auto-Generation for Future Installments/Recurrence
-    if (data) {
-        // Run in background, don't await to keep UI snappy
-        this._generateFutureTransactions(data);
+    console.warn("Primary Insert Failed, triggering fallbacks:", fullError.message);
+
+    // 2. FALLBACK A: Legacy Schema (Remove newer columns)
+    const { 
+        installment_current, installment_total, 
+        recurrence_period, recurrence_limit, 
+        cost_type, scope, contact_email, ...legacyPayload 
+    } = payload as any;
+
+    const { data: legacyData, error: legacyError } = await supabase
+        .from('transactions')
+        .insert([legacyPayload])
+        .select()
+        .maybeSingle();
+
+    if (!legacyError) {
+        return { data: legacyData, error: null };
+    }
+
+    console.warn("Legacy Fallback Failed:", legacyError.message);
+
+    // 3. FALLBACK B: Bare Minimum (Essential fields only)
+    const barePayload = {
+        user_id: payload.user_id,
+        company_id: payload.company_id,
+        description: payload.description || 'Lançamento',
+        amount: payload.amount || 0,
+        type: payload.type || 'EXPENSE',
+        date: payload.date || new Date().toISOString().split('T')[0],
+        category: payload.category || 'Outros'
+    };
+
+    console.log("Attempting Bare Minimum Insert:", barePayload);
+    const { data: bareData, error: bareError } = await supabase
+        .from('transactions')
+        .insert([barePayload])
+        .select()
+        .maybeSingle();
+
+    if (bareError) {
+        console.error("All insertion layers failed. Final Error:", bareError);
+        throw new Error(`Falha total no banco: ${bareError.message}. Verifique as permissões (RLS) da tabela 'transactions' no Supabase.`);
+    }
+
+    return { data: bareData, error: null };
+  },
+
+  /**
+   * Batch Insert Transactions
+   */
+  async batchAddTransactions(payloads: Partial<Transaction>[]) {
+    if (payloads.length === 0) return { data: [], error: null };
+    
+    // Safety check for first item
+    if (!payloads[0].company_id) {
+        throw new Error("Erro de Segurança: Lote de transações sem company_id.");
+    }
+
+    const { data, error } = await supabase
+        .from('transactions')
+        .insert(payloads)
+        .select();
+
+    if (error) {
+        console.error("Batch Insert Error:", error);
+        throw error;
+    }
+
+    // Trigger recurrence sync for the whole batch
+    if (data && data.length > 0) {
+        data.forEach(t => this._generateFutureTransactions(t).catch(console.error));
     }
 
     return { data, error: null };

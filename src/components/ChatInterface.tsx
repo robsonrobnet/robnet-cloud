@@ -11,6 +11,7 @@ interface ChatInterfaceProps {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onAddTransaction: (t: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
+  onAddBulkTransactions?: (list: any[]) => Promise<void>;
   onSaveMessage: (msg: ChatMessage) => void;
   currentUser: UserType;
   t: any;
@@ -28,7 +29,7 @@ const STATUS_MAP: Record<string, string> = {
     'OVERDUE': 'Em Atraso'
 };
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, onAddTransaction, onSaveMessage, currentUser, t, currentLang, onClose, transactions = [], categories, companies, onUpdateData }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, onAddTransaction, onAddBulkTransactions, onSaveMessage, currentUser, t, currentLang, onClose, transactions = [], categories, companies, onUpdateData }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -409,23 +410,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
       }
   };
 
-  const handleConfirmAllCreations = async () => {
-      if (pendingTransactions.length === 0) return;
-      setIsLoading(true);
-      try {
-          // Process one by one to trigger recurrence logic if needed in FinancialService
-          for (const t of pendingTransactions) {
-              const payload = { ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' };
-              await onAddTransaction(payload as any);
-          }
-          setPendingTransactions([]);
-          checkIfEmpty();
-      } catch (e) {
-          alert("Erro ao adicionar em massa: " + e);
-      } finally {
-          setIsLoading(false);
-      }
-  };
+   const handleConfirmAllCreations = async () => {
+       if (pendingTransactions.length === 0) return;
+       setIsLoading(true);
+       try {
+           if (onAddBulkTransactions) {
+               const list = pendingTransactions.map(t => ({
+                   ...t,
+                   category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros'
+               }));
+               await onAddBulkTransactions(list);
+           } else {
+               // Fallback
+               for (const t of pendingTransactions) {
+                   const payload = { ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' };
+                   await onAddTransaction(payload as any);
+               }
+           }
+           setPendingTransactions([]);
+           checkIfEmpty();
+       } catch (e) {
+           alert("Erro ao adicionar em massa: " + e);
+       } finally {
+           setIsLoading(false);
+       }
+   };
 
   const updateUpdateField = (index: number, field: string, value: any) => { const newList = [...pendingUpdates]; newList[index].fields = { ...newList[index].fields, [field]: value }; setPendingUpdates(newList); };
   const discardAll = () => { setPendingTransactions([]); setPendingUpdates([]); setPendingDeletions([]); setShowReviewModal(false); setLastScannedImage(null); };
