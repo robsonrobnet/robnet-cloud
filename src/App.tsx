@@ -221,12 +221,6 @@ const App: React.FC = () => {
       
       const response = await FinancialService.addTransaction(payload);
       const { data, error } = response;
-      const isDuplicate = (response as any).isDuplicate;
-
-      if (isDuplicate) {
-         console.warn(`Skipped duplicate: ${payload.description}`);
-         return; 
-      }
 
       if (error) throw error;
       
@@ -234,6 +228,7 @@ const App: React.FC = () => {
       fetchData();
     } catch (e: any) { 
       console.error("Critical error in handleAddTransaction:", e); 
+      alert("Erro ao registrar lançamento: " + (e.message || "Erro desconhecido"));
     }
   };
 

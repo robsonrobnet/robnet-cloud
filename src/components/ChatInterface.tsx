@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 interface ChatInterfaceProps {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onAddTransaction: (t: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  onAddTransaction: (t: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
   onSaveMessage: (msg: ChatMessage) => void;
   currentUser: UserType;
   t: any;
@@ -280,27 +280,58 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
 
     // --- LÓGICA DE INSERÇÃO AUTOMÁTICA DE TRANSAÇÕES ---
     if (result.extractedTransactions && result.extractedTransactions.length > 0) {
-      if (isAutoProcessFile) {
-          // Processa Automaticamente sem Modal para arquivos estruturados
+      if (isAutoProcessFile || (result.extractedTransactions.length === 1 && !result.updates?.length && !result.deletions?.length)) {
+          // Processa Automaticamente se for arquivo ou se for apenas UM lançamento único sem outras pendências
           let importedCount = 0;
-          result.extractedTransactions.forEach(t => {
-              const payload = {
-                  ...t,
-                  scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'),
-                  company_id: currentUser.company_id,
-                  date: t.date || new Date().toISOString().split('T')[0],
-                  // Tenta resolver o nome da categoria ou usa o sugerido
-                  category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros'
-              };
-              onAddTransaction(payload as any);
-              importedCount++;
-          });
+          let directInserted = false;
+
+          for (const t of result.extractedTransactions) {
+              // Tenta resolver a categoria pelo nome sugerido pela IA
+              let resolvedCategoryId = t.category_id;
+              if (!resolvedCategoryId && t.category) {
+                  const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
+                  if (found) resolvedCategoryId = found.id;
+              }
+
+              // Se temos a categoria resolvida (ou se é auto-processamento de arquivo q pode ir sem), inserimos direto
+              if (isAutoProcessFile || resolvedCategoryId) {
+                  const payload = {
+                      ...t,
+                      category_id: resolvedCategoryId,
+                      scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'),
+                      company_id: currentUser.company_id,
+                      date: t.date || new Date().toISOString().split('T')[0],
+                      category: t.category || categories.find(c => c.id === resolvedCategoryId)?.name || 'Outros'
+                  };
+                  await onAddTransaction(payload as any);
+                  importedCount++;
+                  directInserted = true;
+              } else {
+                  // Se caiu aqui e NÃO é arquivo, significa que é um lançamento único mas SEM categoria resolvida
+                  // Então abrimos o modal para o usuário escolher a categoria
+                  setPendingTransactions([
+                      {
+                        ...t, 
+                        scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'), 
+                        company_id: currentUser.company_id, 
+                        date: t.date || new Date().toISOString().split('T')[0]
+                      }
+                  ]);
+                  hasPendingActions = true;
+              }
+          }
           
-          // Adiciona feedback na mensagem da IA
-          result.textResponse += `\n\n✅ **IMPORTAÇÃO AUTOMÁTICA:** ${importedCount} registros foram processados e incluídos diretamente do arquivo ${currentFile?.name.split('.').pop()?.toUpperCase()}.`;
-          setPendingTransactions([]); // Limpa pendências para não abrir modal
+          if (directInserted) {
+              if (isAutoProcessFile) {
+                result.textResponse += `\n\n✅ **IMPORTAÇÃO AUTOMÁTICA:** ${importedCount} registros processados do arquivo.`;
+              } else {
+                const lastT = result.extractedTransactions[0];
+                result.textResponse += `\n\n✅ **LANÇAMENTO DIRETO:** "${lastT.description}" de R$ ${lastT.amount} registrado em *${lastT.category}*.`;
+              }
+              if (!hasPendingActions) setPendingTransactions([]); 
+          }
       } else {
-          // Processo Manual (Imagens / Texto) -> Abre Modal para revisão
+          // Processo Manual (Múltiplos ou com pendências complexas) -> Abre Modal
           setPendingTransactions(result.extractedTransactions.map(t => ({...t, scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'), company_id: currentUser.company_id, date: t.date || new Date().toISOString().split('T')[0]})));
           hasPendingActions = true;
       }
@@ -328,8 +359,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   };
 
   // ... (Modal logic same as before, focusing on Render of Updates) ...
-  const handleConfirmTransaction = (index: number, t: Partial<Transaction>) => {
-      onAddTransaction({ ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' } as any);
+  const handleConfirmTransaction = async (index: number, t: Partial<Transaction>) => {
+      await onAddTransaction({ ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' } as any);
       const newList = [...pendingTransactions];
       newList.splice(index, 1);
       setPendingTransactions(newList);

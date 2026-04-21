@@ -212,41 +212,29 @@ export const FinancialService = {
         throw new Error("Erro de Segurança: Tentativa de criar transação sem vínculo empresarial (company_id missing).");
     }
 
-    // 1. DUPLICATE CHECK (Prevent double entry of same transaction)
-    try {
-        const { data: existing } = await supabase
-            .from('transactions')
-            .select('id')
-            .eq('company_id', payload.company_id)
-            .eq('date', payload.date)
-            .eq('amount', payload.amount)
-            .eq('description', payload.description)
-            .eq('type', payload.type)
-            .limit(1)
-            .maybeSingle();
-
-        if (existing) {
-            console.log(`Duplicate transaction prevented: ${payload.description} (${payload.date})`);
-            return { data: null, error: null, isDuplicate: true };
-        }
-    } catch (e) {
-        console.warn("Duplicate check failed, proceeding to insert attempt.");
-    }
-
-    // 2. INSERT
+    // 1. INSERT
     const { data, error } = await supabase
       .from('transactions')
       .insert([payload])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
-        // Fallback for legacy schema
-        if (error.code === 'PGRST204' || error.message.includes('installment')) {
-            const { installment_current, installment_total, ...legacyPayload } = payload as any;
-            return await supabase.from('transactions').insert([legacyPayload]).select().single();
-        }
-        throw error;
+        // Fallback for legacy schema or missing columns
+        console.warn("Retrying transaction insert without advanced fields due to error:", error.message);
+        const { 
+            installment_current, 
+            installment_total, 
+            recurrence_period, 
+            recurrence_limit, 
+            cost_type, 
+            scope, 
+            ...legacyPayload 
+        } = payload as any;
+        
+        const retry = await supabase.from('transactions').insert([legacyPayload]).select().maybeSingle();
+        if (retry.error) throw retry.error;
+        return { data: retry.data, error: null };
     }
 
     // Trigger Auto-Generation for Future Installments/Recurrence
@@ -255,7 +243,7 @@ export const FinancialService = {
         this._generateFutureTransactions(data);
     }
 
-    return { data, error: null, isDuplicate: false };
+    return { data, error: null };
   },
 
   /**
