@@ -116,42 +116,69 @@ export const FinancialService = {
                 })());
             }
         } 
-        // 2. RECURRENCE LOGIC (Infinite, generate only ONE next month)
+        // 2. RECURRENCE LOGIC (Enhanced Subscription Logic)
         else if (baseTransaction.is_recurring) {
-            checks.push((async () => {
-                const nextDateStr = addMonths(startYear, startMonth, startDay, 1);
-                const targetDate = new Date(nextDateStr);
-                const startOfTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1).toISOString();
-                const endOfTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).toISOString();
+            const limit = baseTransaction.recurrence_limit || 1; // Default to 1 if not specified
+            const period = baseTransaction.recurrence_period || 'MONTHLY';
 
-                const { count } = await supabase
-                    .from('transactions')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('company_id', baseTransaction.company_id)
-                    .eq('description', baseTransaction.description)
-                    .gte('date', startOfTargetMonth)
-                    .lte('date', endOfTargetMonth);
+            for (let i = 1; i <= limit; i++) {
+                checks.push((async () => {
+                    let nextDateStr: string;
+                    if (period === 'MONTHLY') {
+                        nextDateStr = addMonths(startYear, startMonth, startDay, i);
+                    } else if (period === 'WEEKLY') {
+                        const date = new Date(startYear, startMonth, startDay + (i * 7));
+                        nextDateStr = date.toISOString().split('T')[0];
+                    } else { // YEARLY
+                        const date = new Date(startYear + i, startMonth, startDay);
+                        if (date.getDate() !== startDay) date.setDate(0);
+                        nextDateStr = date.toISOString().split('T')[0];
+                    }
 
-                if (!count || count === 0) {
-                    futures.push({
-                        user_id: baseTransaction.user_id,
-                        company_id: baseTransaction.company_id,
-                        category_id: baseTransaction.category_id,
-                        category: baseTransaction.category,
-                        contact_email: baseTransaction.contact_email,
-                        description: baseTransaction.description,
-                        amount: baseTransaction.amount,
-                        type: baseTransaction.type,
-                        status: 'PENDING',
-                        // Corrigido: usando cost_type da baseTransaction
-                        cost_type: baseTransaction.cost_type,
-                        scope: baseTransaction.scope,
-                        date: nextDateStr,
-                        due_date: nextDateStr,
-                        is_recurring: true
-                    });
-                }
-            })());
+                    const targetDate = new Date(nextDateStr);
+                    let startOfTarget, endOfTarget: string;
+
+                    if (period === 'MONTHLY') {
+                        startOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1).toISOString();
+                        endOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).toISOString();
+                    } else if (period === 'WEEKLY') {
+                        startOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() - 3).toISOString();
+                        endOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 3).toISOString();
+                    } else {
+                        startOfTarget = new Date(targetDate.getFullYear(), 0, 1).toISOString();
+                        endOfTarget = new Date(targetDate.getFullYear(), 11, 31).toISOString();
+                    }
+
+                    const { count } = await supabase
+                        .from('transactions')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('company_id', baseTransaction.company_id)
+                        .eq('description', baseTransaction.description)
+                        .gte('date', startOfTarget)
+                        .lte('date', endOfTarget);
+
+                    if (!count || count === 0) {
+                        futures.push({
+                            user_id: baseTransaction.user_id,
+                            company_id: baseTransaction.company_id,
+                            category_id: baseTransaction.category_id,
+                            category: baseTransaction.category,
+                            contact_email: baseTransaction.contact_email,
+                            description: baseTransaction.description,
+                            amount: baseTransaction.amount,
+                            type: baseTransaction.type,
+                            status: 'PENDING',
+                            cost_type: baseTransaction.cost_type,
+                            scope: baseTransaction.scope,
+                            date: nextDateStr,
+                            due_date: nextDateStr,
+                            is_recurring: true,
+                            recurrence_period: period,
+                            recurrence_limit: limit
+                        });
+                    }
+                })());
+            }
         }
 
         // Wait for all checks to complete
@@ -290,6 +317,16 @@ export const FinancialService = {
 
   async deleteTransaction(id: string) {
     const { error } = await supabase.from('transactions').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  async batchDeleteTransactions(ids: string[]) {
+    const { error } = await supabase.from('transactions').delete().in('id', ids);
+    if (error) throw error;
+  },
+
+  async batchUpdateTransactions(ids: string[], updates: Partial<Transaction>) {
+    const { error } = await supabase.from('transactions').update(updates).in('id', ids);
     if (error) throw error;
   },
 

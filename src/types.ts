@@ -58,6 +58,8 @@ export interface Transaction {
   date: string; 
   due_date?: string;
   is_recurring?: boolean;
+  recurrence_period?: 'MONTHLY' | 'WEEKLY' | 'YEARLY';
+  recurrence_limit?: number;
   installment_current?: number;
   installment_total?: number;
   contact_email?: string;

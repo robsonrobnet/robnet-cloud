@@ -212,6 +212,8 @@ const App: React.FC = () => {
         date: finalDate,
         due_date: newTrans.due_date || finalDate,
         is_recurring: !!newTrans.is_recurring,
+        recurrence_period: newTrans.recurrence_period,
+        recurrence_limit: newTrans.recurrence_limit,
         installment_current: newTrans.installment_current,
         installment_total: newTrans.installment_total,
         contact_email: newTrans.contact_email

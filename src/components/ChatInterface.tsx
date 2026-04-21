@@ -330,15 +330,70 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   // ... (Modal logic same as before, focusing on Render of Updates) ...
   const handleConfirmTransaction = (index: number, t: Partial<Transaction>) => {
       onAddTransaction({ ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' } as any);
-      const newList = [...pendingTransactions]; newList.splice(index, 1); setPendingTransactions(newList); checkIfEmpty();
+      const newList = [...pendingTransactions];
+      newList.splice(index, 1);
+      setPendingTransactions(newList);
+      checkIfEmpty();
   };
 
   const handleConfirmUpdate = async (index: number, update: { id: string, fields: any }) => {
       try { await FinancialService.updateTransaction(update.id, update.fields); if (onUpdateData) onUpdateData(); const newList = [...pendingUpdates]; newList.splice(index, 1); setPendingUpdates(newList); checkIfEmpty(); } catch (e) { alert("Erro ao atualizar: " + e); }
   };
 
+  const handleConfirmAllUpdates = async () => {
+    if (pendingUpdates.length === 0) return;
+    setIsLoading(true);
+    try {
+        // Group by fields to use batch update where possible (optimization)
+        // For now, simpler processing:
+        for (const update of pendingUpdates) {
+            await FinancialService.updateTransaction(update.id, update.fields);
+        }
+        if (onUpdateData) onUpdateData();
+        setPendingUpdates([]);
+        checkIfEmpty();
+    } catch (e) {
+        alert("Erro ao processar atualizações em massa: " + e);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
   const handleConfirmDelete = async (index: number, id: string) => {
       try { await FinancialService.deleteTransaction(id); if (onUpdateData) onUpdateData(); const newList = [...pendingDeletions]; newList.splice(index, 1); setPendingDeletions(newList); checkIfEmpty(); } catch (e) { alert("Erro ao excluir: " + e); }
+  };
+
+  const handleConfirmAllDeletions = async () => {
+      if (pendingDeletions.length === 0) return;
+      setIsLoading(true);
+      try {
+          await FinancialService.batchDeleteTransactions(pendingDeletions);
+          if (onUpdateData) onUpdateData();
+          setPendingDeletions([]);
+          checkIfEmpty();
+      } catch (e) {
+          alert("Erro ao excluir em massa: " + e);
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
+  const handleConfirmAllCreations = async () => {
+      if (pendingTransactions.length === 0) return;
+      setIsLoading(true);
+      try {
+          // Process one by one to trigger recurrence logic if needed in FinancialService
+          for (const t of pendingTransactions) {
+              const payload = { ...t, category: t.category || categories.find(c => c.id === t.category_id)?.name || 'Outros' };
+              await onAddTransaction(payload as any);
+          }
+          setPendingTransactions([]);
+          checkIfEmpty();
+      } catch (e) {
+          alert("Erro ao adicionar em massa: " + e);
+      } finally {
+          setIsLoading(false);
+      }
   };
 
   const updateUpdateField = (index: number, field: string, value: any) => { const newList = [...pendingUpdates]; newList[index].fields = { ...newList[index].fields, [field]: value }; setPendingUpdates(newList); };
@@ -359,12 +414,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
       {showReviewModal && (
         <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
-               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 rounded-t-3xl">
-                  <div><h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2"><Sparkles size={20} className="text-emerald-500" /> Auditoria & Confirmação</h3><p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Confirme as ações sugeridas pela IA</p></div>
-                  <button onClick={discardAll} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={24} /></button>
+               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 rounded-t-3xl text-sm leading-tight text-current">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2"><Sparkles size={20} className="text-emerald-500" /> Auditoria & Confirmação</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Confirme as ações sugeridas pela IA</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                       onClick={discardAll} 
+                       className="p-2 text-slate-400 hover:text-rose-500 transition-colors bg-white dark:bg-slate-800 rounded-xl"
+                       title="Descartar Tudo"
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                    <button onClick={() => setShowReviewModal(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors bg-white dark:bg-slate-800 rounded-xl"><X size={20} /></button>
+                  </div>
                </div>
                
-               <div className="flex-1 overflow-y-auto p-6 space-y-6">
+               <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
                   {lastScannedImage && pendingTransactions.length > 0 && (
                       <div className="mb-4 rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-2">
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Documento Analisado</p>
@@ -373,136 +440,150 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                   )}
                   {/* DELETIONS */}
                   {pendingDeletions.length > 0 && (
-                      <div className="space-y-3">
-                          <h4 className="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2"><Trash2 size={14}/> Exclusões Sugeridas</h4>
-                          {pendingDeletions.map((id, idx) => {
-                              const t = transactions?.find(item => item.id === id);
-                              return (
-                                  <div key={id} className="bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 p-4 rounded-xl flex items-center justify-between">
-                                      <div><p className="font-bold text-slate-800 dark:text-white text-sm">{t?.description}</p><p className="text-xs text-slate-500">R$ {t?.amount} • {t?.date}</p></div>
-                                      <button onClick={() => handleConfirmDelete(idx, id)} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase">Confirmar Exclusão</button>
-                                  </div>
-                              );
-                          })}
+                      <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2"><Trash2 size={14}/> Exclusões Sugeridas ({pendingDeletions.length})</h4>
+                            <button 
+                                onClick={handleConfirmAllDeletions}
+                                className="bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm flex items-center gap-2"
+                            >
+                                <Check size={12}/> Confirmar Todas
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {pendingDeletions.map((id, idx) => {
+                                const t = transactions?.find(item => item.id === id);
+                                return (
+                                    <div key={id} className="bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 p-3 rounded-xl flex items-center justify-between group">
+                                        <div><p className="font-bold text-slate-800 dark:text-white text-sm">{t?.description || 'ID: ' + id}</p><p className="text-xs text-slate-500">R$ {t?.amount} • {t?.date}</p></div>
+                                        <button onClick={() => handleConfirmDelete(idx, id)} className="text-rose-500 hover:bg-white dark:hover:bg-rose-900/40 p-2 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                    </div>
+                                );
+                            })}
+                          </div>
                       </div>
                   )}
 
                   {/* UPDATES (Enhanced) */}
                   {pendingUpdates.length > 0 && (
-                      <div className="space-y-3">
-                          <h4 className="text-xs font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><Check size={14}/> Atualizações / Pagamentos</h4>
-                          {pendingUpdates.map((update, idx) => {
-                              const t = transactions?.find(item => item.id === update.id);
-                              const isPaying = update.fields.status === 'PAID';
-                              const companyName = companies.find(c => c.id === t?.company_id)?.name || 'Corporativo';
-                              const typeLabel = t?.type === 'INCOME' ? 'Receita' : 'Despesa';
-                              
-                              return (
-                                  <div key={update.id} className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 p-4 rounded-xl flex flex-col gap-3">
-                                      {/* Full Data Display */}
-                                      <div className="flex justify-between items-start">
-                                          <div className="flex-1">
-                                              <p className="font-black text-slate-800 dark:text-white text-sm">{t?.description}</p>
-                                              <div className="flex flex-wrap gap-2 mt-1">
-                                                  <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{t?.category}</span>
-                                                  <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{companyName}</span>
-                                                  <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{typeLabel}</span>
-                                                  <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">Vence: {new Date(t?.due_date || t?.date || '').toLocaleDateString()}</span>
-                                              </div>
-                                              <p className="text-xs font-black text-slate-700 dark:text-slate-300 mt-2">
-                                                  Valor: R$ {Number(t?.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                                              </p>
-                                          </div>
-                                          <div className="flex items-center gap-2 text-indigo-500 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg shadow-sm">
-                                              <ArrowRight size={14} />
-                                              <span className="text-[10px] font-black uppercase">
-                                                  {isPaying ? 'BAIXAR [PAGAR]' : 'ALTERAR'}
-                                              </span>
-                                          </div>
-                                      </div>
-                                      
-                                      {/* Payment Date Input */}
-                                      {isPaying && (
-                                          <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/50 mt-1">
-                                              <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-1 mb-1">
-                                                  <Calendar size={12} /> Data do Pagamento
-                                              </label>
-                                              <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={update.fields.date || new Date().toISOString().split('T')[0]} onChange={(e) => updateUpdateField(idx, 'date', e.target.value)} />
-                                          </div>
-                                      )}
-                                      
-                                      {/* Changes Diff Display with Status Translation */}
-                                      <div className="bg-white dark:bg-slate-900 p-3 rounded-lg text-xs border border-slate-100 dark:border-slate-800">
-                                          {Object.entries(update.fields).map(([key, val]) => {
-                                              if (key === 'date' && isPaying) return null; 
-                                              let displayVal = String(val);
-                                              if (key === 'status') displayVal = STATUS_MAP[String(val)] || val as string;
-                                              return (
-                                                  <div key={key} className="flex justify-between py-1 border-b border-dashed border-slate-100 dark:border-slate-800 last:border-0">
-                                                      <span className="text-slate-400 font-bold uppercase text-[10px]">{key}</span>
-                                                      <span className="font-black text-slate-700 dark:text-slate-300 uppercase">{displayVal}</span>
-                                                  </div>
-                                              );
-                                          })}
-                                      </div>
-                                      <button onClick={() => handleConfirmUpdate(idx, update)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all">Confirmar Atualização</button>
-                                  </div>
-                              );
-                          })}
+                      <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2"><Check size={14}/> Atualizações / Pagamentos ({pendingUpdates.length})</h4>
+                            <button 
+                                onClick={handleConfirmAllUpdates}
+                                className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-sm flex items-center gap-2"
+                            >
+                                <Check size={12}/> Confirmar Todas
+                            </button>
+                          </div>
+                          <div className="space-y-3">
+                            {pendingUpdates.map((update, idx) => {
+                                const t = transactions?.find(item => item.id === update.id);
+                                const isPaying = update.fields.status === 'PAID';
+                                const companyName = companies.find(c => c.id === t?.company_id)?.name || 'Corporativo';
+                                const typeLabel = t?.type === 'INCOME' ? 'Receita' : 'Despesa';
+                                
+                                return (
+                                    <div key={update.id} className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 p-4 rounded-xl flex flex-col gap-3">
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1">
+                                                <p className="font-black text-slate-800 dark:text-white text-sm">{t?.description}</p>
+                                                <div className="flex flex-wrap gap-2 mt-1">
+                                                    <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{t?.category}</span>
+                                                    <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{companyName}</span>
+                                                    <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">Vence: {new Date(t?.due_date || t?.date || '').toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 text-indigo-600 bg-white dark:bg-slate-800 px-2 py-1 rounded-lg shadow-sm border border-indigo-50">
+                                                <ArrowRight size={12} />
+                                                <span className="text-[9px] font-black uppercase">{isPaying ? 'Pagar' : 'Alterar'}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        {isPaying && (
+                                            <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                                                <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-1 mb-1 ml-1"><Calendar size={10} /> Data do Pagamento</label>
+                                                <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-md p-1.5 text-[10px] font-bold text-slate-800 dark:text-white outline-none" value={update.fields.date || new Date().toISOString().split('T')[0]} onChange={(e) => updateUpdateField(idx, 'date', e.target.value)} />
+                                            </div>
+                                        )}
+                                        
+                                        <div className="bg-white/50 dark:bg-slate-900/50 p-2 rounded-lg text-[10px] border border-slate-100/50 dark:border-white/5">
+                                            {Object.entries(update.fields).map(([key, val]) => {
+                                                if (key === 'date' && isPaying) return null; 
+                                                return (
+                                                    <div key={key} className="flex justify-between py-0.5 border-b border-white/10 last:border-0"><span className="text-slate-400 font-bold uppercase">{key}</span><span className="font-black text-slate-700 dark:text-slate-300 uppercase">{key === 'status' ? (STATUS_MAP[String(val)] || val as string) : String(val)}</span></div>
+                                                );
+                                            })}
+                                        </div>
+                                        <button onClick={() => handleConfirmUpdate(idx, update)} className="bg-indigo-600 hover:bg-slate-900 text-white w-full py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md transition-all flex items-center justify-center gap-2"><Check size={14} /> Salvar Alteração</button>
+                                    </div>
+                                );
+                            })}
+                          </div>
                       </div>
                   )}
 
-                  {/* CREATIONS (Original Logic) */}
+                  {/* CREATIONS */}
                   {pendingTransactions.length > 0 && (
-                     <div className="space-y-4">
-                        <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2"><Sparkles size={14}/> Novos Lançamentos</h4>
-                        {/* ... (Pending Transactions Map as before) ... */}
-                        {pendingTransactions.map((item, idx) => (
-                            <div key={idx} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label><input className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white" value={item.description || ''} onChange={(e) => updatePending(idx, 'description', e.target.value)}/></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label><div className="relative"><DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 pl-8 text-sm font-bold text-slate-800 dark:text-white" value={item.amount || ''} onChange={(e) => updatePending(idx, 'amount', Number(e.target.value))}/></div></div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label><div className="relative"><CalendarIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="date" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 pl-8 text-xs font-bold text-slate-800 dark:text-white" value={item.date || ''} onChange={(e) => updatePending(idx, 'date', e.target.value)}/></div></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Entidade</label><div className="flex gap-1 p-1 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-600"><button onClick={() => updatePending(idx, 'scope', 'BUSINESS')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.scope === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400'}`}>PJ</button><button onClick={() => updatePending(idx, 'scope', 'PERSONAL')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.scope === 'PERSONAL' ? 'bg-teal-500 text-white shadow-sm' : 'text-slate-400'}`}>PF</button></div></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo</label><div className="flex gap-1 p-1 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-600"><button onClick={() => updatePending(idx, 'type', 'EXPENSE')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'EXPENSE' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-400'}`}>Saída</button><button onClick={() => updatePending(idx, 'type', 'INCOME')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'INCOME' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>Entrada</button></div></div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {item.scope === 'BUSINESS' && (<div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa Vinculada</label><select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={item.company_id || ''} onChange={(e) => updatePending(idx, 'company_id', e.target.value)}><option value="">Selecione a Empresa...</option>{companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>)}
-                                    <div className={item.scope === 'PERSONAL' ? 'md:col-span-2' : ''}><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Tag size={10} /> Categoria {(!item.category_id && !item.category) && <span className="text-rose-500">*</span>}</label><select className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 ${(!item.category_id && !item.category) ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200 dark:border-slate-600'}`} value={item.category_id || ''} onChange={(e) => updatePending(idx, 'category_id', e.target.value)}><option value="">Selecione...</option>{categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>
-                                </div>
-
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 flex flex-wrap gap-4 items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <button 
-                                            type="button" 
-                                            onClick={() => updatePending(idx, 'is_recurring', !item.is_recurring)}
-                                            className={`w-10 h-6 rounded-full transition-all relative ${item.is_recurring ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}
-                                        >
-                                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${item.is_recurring ? 'left-5' : 'left-1'}`}></div>
-                                        </button>
-                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recorrente?</span>
+                      <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2"><Sparkles size={14}/> Novos Lançamentos ({pendingTransactions.length})</h4>
+                            <button 
+                                onClick={handleConfirmAllCreations}
+                                className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all shadow-sm flex items-center gap-2"
+                            >
+                                <Check size={12}/> Confirmar Todos
+                            </button>
+                          </div>
+                          <div className="space-y-4">
+                            {pendingTransactions.map((item, idx) => (
+                                <div key={idx} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label><input className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white" value={item.description || ''} onChange={(e) => updatePending(idx, 'description', e.target.value)}/></div>
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label><div className="relative"><DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 pl-8 text-sm font-bold text-slate-800 dark:text-white" value={item.amount || ''} onChange={(e) => updatePending(idx, 'amount', Number(e.target.value))}/></div></div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label><div className="relative"><CalendarIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="date" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 pl-8 text-xs font-bold text-slate-800 dark:text-white" value={item.date || ''} onChange={(e) => updatePending(idx, 'date', e.target.value)}/></div></div>
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Entidade</label><div className="flex gap-1 p-1 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-600"><button onClick={() => updatePending(idx, 'scope', 'BUSINESS')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.scope === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400'}`}>PJ</button><button onClick={() => updatePending(idx, 'scope', 'PERSONAL')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.scope === 'PERSONAL' ? 'bg-teal-500 text-white shadow-sm' : 'text-slate-400'}`}>PF</button></div></div>
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo</label><div className="flex gap-1 p-1 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-600"><button onClick={() => updatePending(idx, 'type', 'EXPENSE')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'EXPENSE' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-400'}`}>Saída</button><button onClick={() => updatePending(idx, 'type', 'INCOME')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'INCOME' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>Entrada</button></div></div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {item.scope === 'BUSINESS' && (<div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa Vinculada</label><select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={item.company_id || ''} onChange={(e) => updatePending(idx, 'company_id', e.target.value)}><option value="">Selecione a Empresa...</option>{companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>)}
+                                        <div className={item.scope === 'PERSONAL' ? 'md:col-span-2' : ''}><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Tag size={10} /> Categoria {(!item.category_id && !item.category) && <span className="text-rose-500">*</span>}</label><select className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 ${(!item.category_id && !item.category) ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200 dark:border-slate-600'}`} value={item.category_id || ''} onChange={(e) => updatePending(idx, 'category_id', e.target.value)}><option value="">Selecione...</option>{categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>
                                     </div>
 
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Parcelas:</span>
-                                        <input 
-                                            type="number" 
-                                            min="1" 
-                                            className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1 text-[10px] font-black text-center" 
-                                            value={item.installment_total || 1} 
-                                            onChange={(e) => updatePending(idx, 'installment_total', Number(e.target.value))} 
-                                        />
-                                    </div>
+                                    <div className="flex gap-2 pt-2"><button onClick={() => { const newList = [...pendingTransactions]; newList.splice(idx, 1); setPendingTransactions(newList); checkIfEmpty(); }} className="flex-1 py-3 bg-slate-100 dark:bg-slate-900 text-slate-500 rounded-xl font-black text-xs uppercase hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-900/30 transition-all">Descartar</button><button onClick={() => handleConfirmTransaction(idx, item)} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black text-xs uppercase hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-400 transition-all flex items-center justify-center gap-2"><Check size={14} /> Confirmar</button></div>
                                 </div>
-
-                                <div className="flex gap-2 pt-2"><button onClick={() => { const newList = [...pendingTransactions]; newList.splice(idx, 1); setPendingTransactions(newList); checkIfEmpty(); }} className="flex-1 py-3 bg-slate-100 dark:bg-slate-900 text-slate-500 rounded-xl font-black text-xs uppercase hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-900/30 transition-all">Descartar</button><button onClick={() => handleConfirmTransaction(idx, item)} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black text-xs uppercase hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-400 transition-all flex items-center justify-center gap-2"><Check size={14} /> Confirmar</button></div>
-                            </div>
-                        ))}
-                     </div>
+                            ))}
+                          </div>
+                      </div>
                   )}
                </div>
+               
+               {/* Footer with global Batch Actions */}
+               {(pendingTransactions.length > 1 || pendingUpdates.length > 1 || pendingDeletions.length > 1) && (
+                 <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 rounded-b-3xl flex justify-center">
+                    <button 
+                      onClick={async () => {
+                        setIsLoading(true);
+                        try {
+                          if (pendingDeletions.length > 0) await handleConfirmAllDeletions();
+                          if (pendingUpdates.length > 0) await handleConfirmAllUpdates();
+                          if (pendingTransactions.length > 0) await handleConfirmAllCreations();
+                          alert("Todas as ações foram processadas com sucesso!");
+                          onUpdateData?.();
+                        } catch (e) {
+                          alert("Aconteceu um erro no processamento em massa.");
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }}
+                      className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+                    >
+                      <Check size={20} /> APROVAR TODAS AS {pendingTransactions.length + pendingUpdates.length + pendingDeletions.length} AÇÕES
+                    </button>
+                 </div>
+               )}
             </div>
         </div>
       )}

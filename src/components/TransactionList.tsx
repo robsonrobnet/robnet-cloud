@@ -136,6 +136,8 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
         scope: editingTransaction.scope || 'BUSINESS', 
         company_id: editingTransaction.company_id || companies[0]?.id,
         is_recurring: editingTransaction.is_recurring || false,
+        recurrence_period: editingTransaction.recurrence_period || 'MONTHLY',
+        recurrence_limit: editingTransaction.recurrence_limit || 1,
         installment_current: editingTransaction.installment_current || undefined,
         installment_total: editingTransaction.installment_total || undefined,
         type: editingTransaction.type,
@@ -495,6 +497,39 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editingTransaction.is_recurring ? 'left-5' : 'left-1'}`}></div>
                         </button>
                      </div>
+
+                     {editingTransaction.is_recurring && (
+                        <div className="space-y-3 pt-2 animate-in slide-in-from-top-2 border-t border-slate-100 dark:border-slate-800 mt-2 pt-2">
+                           <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Frequência</label>
+                                 <select 
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-bold text-slate-800 dark:text-white outline-none"
+                                    value={editingTransaction.recurrence_period || 'MONTHLY'}
+                                    onChange={e => setEditingTransaction({...editingTransaction, recurrence_period: e.target.value as any})}
+                                 >
+                                    <option value="WEEKLY">Semanal</option>
+                                    <option value="MONTHLY">Mensal</option>
+                                    <option value="YEARLY">Anual</option>
+                                 </select>
+                              </div>
+                              <div>
+                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Ciclos à frente</label>
+                                 <input 
+                                    type="number" 
+                                    min="1" 
+                                    max="24"
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-black text-slate-800 dark:text-white outline-none"
+                                    value={editingTransaction.recurrence_limit || 1}
+                                    onChange={e => setEditingTransaction({...editingTransaction, recurrence_limit: Number(e.target.value)})}
+                                 />
+                              </div>
+                           </div>
+                           <p className="text-[9px] font-bold text-indigo-400 italic">
+                              * O sistema irá agendar automaticamente as próximas {editingTransaction.recurrence_limit || 1} recorrências ({editingTransaction.recurrence_period === 'WEEKLY' ? 'semanais' : editingTransaction.recurrence_period === 'YEARLY' ? 'anuais' : 'mensais'}).
+                           </p>
+                        </div>
+                     )}
                      
                      <div className="flex items-center justify-between">
                         <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2">
