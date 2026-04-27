@@ -406,6 +406,7 @@ const App: React.FC = () => {
             {isLoading ? <div className="flex flex-col items-center justify-center h-full"><Loader2 className="animate-spin text-emerald-500 mb-4" size={48} /><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Neural Syncing...</p></div> 
             : (view === AppView.RECEIVABLES || view === AppView.PAYABLES) ? 
               <ReceivablesManager 
+                key={view}
                 defaultMode={view === AppView.RECEIVABLES ? 'RECEIVABLES' : 'PAYABLES'} 
                 transactions={transactions} 
                 categories={categories} 

@@ -30,6 +30,7 @@ interface Notification {
 
 const ReceivablesManager: React.FC<ReceivablesManagerProps> = ({ defaultMode, transactions, categories, companies, t, onUpdate, onAdd }) => {
   const [viewMode, setViewMode] = useState<'RECEIVABLES' | 'PAYABLES'>(defaultMode);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'ALL' | 'BUSINESS' | 'PERSONAL'>('ALL');
   const [monthFilter, setMonthFilter] = useState<string>(new Date().toISOString().slice(0, 7)); 
@@ -118,25 +119,35 @@ const ReceivablesManager: React.FC<ReceivablesManagerProps> = ({ defaultMode, tr
     return `${day}/${month}/${year}`;
   };
 
-  const filteredItems = useMemo(() => {
+  const monthlyItems = useMemo(() => {
     return transactions.filter(t => {
       const isCorrectType = viewMode === 'RECEIVABLES' ? t.type === 'INCOME' : (t.type === 'EXPENSE' || !t.type);
       const isMonth = (t.due_date || t.date).startsWith(monthFilter);
+      return isCorrectType && isMonth;
+    });
+  }, [transactions, viewMode, monthFilter]);
+
+  const filteredItems = useMemo(() => {
+    return monthlyItems.filter(t => {
       const matchesStatus = statusFilter === 'ALL' || t.status === statusFilter;
       const matchesScope = scopeFilter === 'ALL' || t.scope === scopeFilter;
       const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase());
-      return isCorrectType && isMonth && matchesStatus && matchesScope && matchesSearch;
+      return matchesStatus && matchesScope && matchesSearch;
     }).sort((a,b) => new Date(a.due_date || a.date).getTime() - new Date(b.due_date || b.date).getTime());
-  }, [transactions, viewMode, monthFilter, statusFilter, scopeFilter, searchTerm]);
+  }, [monthlyItems, statusFilter, scopeFilter, searchTerm]);
 
   const stats = useMemo(() => {
-    const active = filteredItems.filter(i => i.status !== 'PAID');
+    const pending = monthlyItems.filter(i => i.status !== 'PAID');
+    const paid = monthlyItems.filter(i => i.status === 'PAID');
+    
     return {
-        total: active.reduce((acc, i) => acc + Number(i.amount), 0),
-        count: active.length,
-        overdue: active.filter(i => i.status === 'OVERDUE').reduce((acc, i) => acc + Number(i.amount), 0)
+        totalPending: pending.reduce((acc, i) => acc + Number(i.amount), 0),
+        countPending: pending.length,
+        totalPaid: paid.reduce((acc, i) => acc + Number(i.amount), 0),
+        totalInvoiced: monthlyItems.reduce((acc, i) => acc + Number(i.amount), 0),
+        overdue: pending.filter(i => i.status === 'OVERDUE').reduce((acc, i) => acc + Number(i.amount), 0)
     };
-  }, [filteredItems]);
+  }, [monthlyItems]);
 
   const handlePrevMonth = () => {
     const [year, month] = monthFilter.split('-').map(Number);
@@ -190,21 +201,23 @@ const ReceivablesManager: React.FC<ReceivablesManagerProps> = ({ defaultMode, tr
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className={`p-6 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden ${viewMode === 'RECEIVABLES' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
               <p className="text-[10px] font-black uppercase opacity-70 tracking-widest">Total Pendente</p>
-              <h3 className="text-3xl font-black mt-2">R$ {stats.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
-              <p className="text-[10px] font-bold mt-2 bg-white/20 px-2 py-1 rounded-lg w-fit">{stats.count} itens em aberto</p>
+              <h3 className="text-3xl font-black mt-2">R$ {stats.totalPending.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+              <p className="text-[10px] font-bold mt-2 bg-white/20 px-2 py-1 rounded-lg w-fit">{stats.countPending} itens em aberto</p>
           </div>
           <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Atrasados (Competência)</p>
-              <h3 className="text-3xl font-black text-slate-800 dark:text-white mt-2">R$ {stats.overdue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Liquidado (Pago)</p>
+              <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-500 mt-2">R$ {stats.totalPaid.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
           </div>
-          <div className="bg-indigo-600 p-6 rounded-[2.5rem] text-white shadow-xl flex items-center justify-center text-center">
-              <div>
-                <p className="text-[10px] font-black uppercase opacity-70 tracking-widest mb-1">Status de Fluxo</p>
-                <p className="text-sm font-bold">{stats.overdue > 0 ? 'Atenção necessária em atrasos.' : 'Fluxo do mês em dia.'}</p>
-              </div>
+          <div className="bg-indigo-600 p-6 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden">
+              <p className="text-[10px] font-black uppercase opacity-70 tracking-widest">Total Faturado</p>
+              <h3 className="text-3xl font-black mt-2">R$ {stats.totalInvoiced.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+          </div>
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Atrasados</p>
+              <h3 className="text-3xl font-black text-rose-600 dark:text-rose-500 mt-2">R$ {stats.overdue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
           </div>
       </div>
 
