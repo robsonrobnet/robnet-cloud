@@ -14,6 +14,32 @@
       if (typeof process === 'undefined') {
         window.process = { env: {} };
       }
+      
+      // Global Error Handler for LocalStorage Corruption & JSON.parse safety
+      (function() {
+        const originalParse = JSON.parse;
+        JSON.parse = function(text, reviver) {
+          if (text === "undefined" || text === undefined || text === "null" || text === null) return null;
+          if (typeof text === 'string') {
+            const trimmed = text.trim();
+            if (trimmed === "" || trimmed === "undefined" || trimmed === "null" || trimmed === "[object Object]") {
+              return null;
+            }
+          }
+          try {
+            return originalParse(text, reviver);
+          } catch (e) {
+            if (e instanceof SyntaxError) {
+              const textStr = String(text);
+              if (textStr.includes('undefined') || textStr.includes('[object Object]') || textStr.length < 2) {
+                return null;
+              }
+            }
+            throw e;
+          }
+        };
+      })();
+
       // Prevent libraries from overwriting fetch if it's already a getter
       const originalFetch = window.fetch;
       try {

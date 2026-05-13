@@ -5,7 +5,6 @@ import './index.css';
 
 const rootElement = document.getElementById('root');
 
-// Global Error Handler for LocalStorage Corruption
 window.addEventListener('error', (event) => {
   if (event.message && (event.message.includes('"undefined" is not valid JSON') || event.message.includes('Unexpected token u in JSON'))) {
     console.warn("[Auto-Fix] Detected localStorage corruption. Clearing session data.");

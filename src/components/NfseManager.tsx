@@ -65,8 +65,8 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
       const [cl, sv, cf, hs] = await Promise.all([
         supabase.from('nfse_clients').select('*').eq('company_id', currentUser.company_id).order('name'),
         supabase.from('nfse_services').select('*').eq('company_id', currentUser.company_id).order('code'),
-        supabase.from('nfse_config').select('*').eq('company_id', currentUser.company_id).maybeSingle(),
-        supabase.from('nfse_rpss')
+        supabase.from('nfse_configs').select('*').eq('company_id', currentUser.company_id).maybeSingle(),
+        supabase.from('nfse_rps')
             .select('*, nfse_clients(*), nfse_services(*)')
             .eq('company_id', currentUser.company_id)
             .order('created_at', { ascending: false })
@@ -210,14 +210,14 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
         exigibilidade_suspensa: issueData.exigibilidade === '0'
       };
 
-      const { data: rpsData, error: rpsError } = await supabase.from('nfse_rpss').insert([payload]).select().single();
+      const { data: rpsData, error: rpsError } = await supabase.from('nfse_rps').insert([payload]).select().single();
       if (rpsError) throw rpsError;
 
-      await supabase.from('nfse_config').update({ last_rps_number: rpsNum }).eq('id', config.id);
+      await supabase.from('nfse_configs').update({ last_rps_number: rpsNum }).eq('id', config.id);
 
       setTimeout(async () => {
         const nfeNum = 20260000 + rpsNum;
-        await supabase.from('nfse_rpss').update({ 
+        await supabase.from('nfse_rps').update({ 
           transmission_status: 'AUTHORIZED',
           nfe_number: nfeNum,
           nfe_verification_code: Math.random().toString(36).substring(2, 10).toUpperCase()
@@ -582,7 +582,7 @@ const NfseManager: React.FC<NfseManagerProps> = ({ currentUser }) => {
                     <button onClick={async () => {
                          const payload: any = { company_id: currentUser.company_id, im: config?.im, rps_series: config?.rps_series || '1', last_rps_number: config?.last_rps_number || 0, certificate_password: config?.certificate_password };
                          if (config?.certificate_pfx_base64) payload.certificate_pfx_base64 = config.certificate_pfx_base64;
-                         await supabase.from('nfse_config').upsert(payload, { onConflict: 'company_id' });
+                         await supabase.from('nfse_configs').upsert(payload, { onConflict: 'company_id' });
                          alert("Configurações Fiscais Gravadas!");
                     }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl hover:scale-[1.01] transition-all flex items-center justify-center gap-3">
                         <Save size={20} /> Aplicar Setup Fiscal

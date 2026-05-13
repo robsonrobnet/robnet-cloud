@@ -12,39 +12,45 @@ export interface Attachment {
 }
 
 const SYSTEM_PROMPT = `
-    ## 🤖 PERFIL: GERENTE FINANCEIRO SÊNIOR & ESPECIALISTA EM OCR (BRASIL)
-    Seu objetivo é o controle rigoroso de fluxo de caixa, gestão contábil e extração precisa de dados de documentos financeiros brasileiros.
+    ## 🤖 PERFIL: AUDITOR FINANCEIRO IA & ESPECIALISTA EM OCR
+    Seu objetivo é transformar documentos financeiros (Recibos, Cupons Fiscais, Extratos Bancários PDF/OFX, Faturas) em dados estruturados com 100% de precisão.
     
-    ## 📸 DIRETRIZES DE OCR E EXTRATOS (RECIBOS, PDF, OFX)
-    Ao receber imagens, PDFs ou arquivos de texto (OFX) de extratos bancários, recibos ou comprovantes:
-    - **Extratos Bancários:** Identifique se o extrato é de uma conta **PESSOAL** (PF) ou **EMPRESA** (PJ).
-    - **Scope:** Defina 'scope' como 'PERSONAL' para contas PF e 'BUSINESS' para contas PJ.
-    - **Categorização:** 
-        - Se for 'PERSONAL', use categorias como: Alimentação, Moradia, Lazer, Saúde, Transporte Pessoal.
-        - Se for 'BUSINESS', use categorias como: Fornecedores, Impostos, Salários, Aluguel Comercial, Marketing, Software/SaaS.
-    - **Tipo de Transação:** Identifique 'INCOME' (entradas/créditos) e 'EXPENSE' (saídas/débitos).
-    - **Extração em Massa:** Se for um extrato com múltiplas linhas, extraia **TODAS** as transações individuais encontradas.
-    - **Campos:** Extraia 'amount' (positivo), 'date' (YYYY-MM-DD), 'description', 'type', 'category', 'status' (geralmente 'PAID' para extratos passados) e 'scope'.
-    - **OFX:** Se o conteúdo for um XML/OFX, analise as tags <STMTTRN> para extrair os dados.
-    - **Recibos Individuais:** Extraia o valor total ('amount'), data ('date'), emissor ('description') e classifique em 'category'.
-    - **Status:** Defina 'status' como 'PAID' para recibos de compras já realizadas ou transações de extrato.
+    ## 📸 DIRETRIZES DE OCR E PROCESSAMENTO
+    Ao receber imagens ou documentos:
+    1. **Identificação de Documento:** Determine se é um Recibo Único, Extrato Bancário (PDF/OFX), Cupom Fiscal ou Fatura de Cartão.
+    2. **Extração de Metadados:**
+       - **Banco:** Se for extrato, identifique a instituição (Itaú, Nubank, Bradesco, etc).
+       - **Entidade:** Identifique se os gastos são majoritariamente PJ (Empresa) ou PF (Pessoal).
+    3. **Categorização Inteligente (BRASIL):**
+       - **Receitas:** 'Vendas', 'Serviços', 'Investimentos', 'Aportes'.
+       - **Despesas Operacionais:** 'Fornecedores', 'Marketing', 'Software/SaaS', 'Aluguel', 'Impostos (DAS, GPS)'.
+       - **Despesas Pessoais:** 'Alimentação', 'Saúde', 'Transporte', 'Lazer'.
+       - **Financeiro:** 'Tarifas Bancárias', 'Juros Empréstimo'.
+    4. **Mapeamento de Tipos:** 
+       - Créditos/Entradas -> 'INCOME'.
+       - Débitos/Saídas/Pagamentos -> 'EXPENSE'.
+    5. **Status:** 
+       - Extratos bancários e recibos antigos -> 'PAID'.
+       - Faturas futuras ou boletos -> 'PENDING'.
 
-    ## 📏 DIRETRIZES GERAIS
-    - Respostas concisas e estruturadas.
-    - Reconheça 'PAID' como liquidado.
-    - Gere JSON para transações, atualizações e novos clientes.
+    ## 🏗️ LÓGICA DE EXTRAÇÃO EM MASSA (EXTRATOS)
+    Se o documento for um extrato (PDF/OFX) com múltiplas linhas:
+    - Extraia **CADA** linha como uma transação individual no array 'extractedTransactions'.
+    - Aglutine transações apenas se forem repetições idênticas no mesmo dia (ex: múltiplas taxas de 1,00).
 
     ## 📝 FORMATO DE SAÍDA (JSON OBRIGATÓRIO)
+    Ignore conversas triviais se houver um documento. Priorize o JSON.
     \`\`\`json
     {
+      "textResponse": "Resumo do que foi encontrado (ex: 'Detectado Extrato Nubank com 15 lançamentos.')",
       "extractedTransactions": [ 
         {
-          "description": "string",
-          "amount": number,
+          "description": "Nome limpo do favorecido ou transação",
+          "amount": 100.50,
           "date": "YYYY-MM-DD",
           "type": "EXPENSE" | "INCOME",
-          "category": "string",
-          "status": "PAID" | "PENDING",
+          "category": "Categoria Sugerida",
+          "status": "PAID",
           "scope": "BUSINESS" | "PERSONAL"
         }
       ],
@@ -174,17 +180,62 @@ const processAIResponse = (rawText: string) => {
   if (jsonMatch && jsonMatch[1]) {
     try {
       const parsed = JSON.parse(jsonMatch[1]);
-      extractedTransactions = parsed.extractedTransactions || [];
-      updates = parsed.updates || [];
-      deletions = parsed.deletions || [];
-      extractedClients = parsed.extractedClients || [];
-      cleanTextResponse = rawText.replace(/```json[\s\S]*?```/, "").trim();
+      if (parsed && typeof parsed === 'object') {
+        extractedTransactions = parsed.extractedTransactions || [];
+        updates = parsed.updates || [];
+        deletions = parsed.deletions || [];
+        extractedClients = parsed.extractedClients || [];
+        cleanTextResponse = rawText.replace(/```json[\s\S]*?```/, "").trim();
+      }
     } catch (e) {
       console.error("Erro ao processar JSON da IA:", e);
     }
   }
 
   return { textResponse: cleanTextResponse, extractedTransactions, updates, deletions, extractedClients };
+};
+
+/**
+ * Método genérico para geração de texto/chat sem processamento financeiro específico.
+ */
+export const generateChatResponse = async (prompt: string, history: any[] = []): Promise<string> => {
+  try {
+    const overrideKey = loadSecureSetting('gemini_key');
+    const apiKey = overrideKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Chave Gemini não configurada");
+
+    const ai = new GoogleGenAI({ apiKey });
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [{ 
+        role: 'user', 
+        parts: [{ text: `Aja como um especialista em E-commerce e Copywriting. Pesquise na internet tudo sobre o produto: "${prompt}" e crie uma descrição completa com SEO e Gatilhos Mentais.
+
+Use EXATAMENTE este modelo de estrutura:
+1. ✨ Título Chamativo (com emojis)
+2. Frase de impacto sobre o benefício principal
+3. Parágrafo curto de introdução
+4. 💜 Benefícios Principais (use emojis)
+5. 🔮 Design e Qualidade (detalhado)
+6. 💰 Diferenciais de Valor
+7. 📏 Especificações Técnicas (em lista)
+8. ⚠️ Observações importantes (como variações naturais)
+9. 🌿 Resumo final e CTA (Call to Action)
+
+Retorne APENAS o texto da descrição finalizada, formatada e pronta para uso, sem comentários extras.` }] 
+      }],
+      config: {
+        tools: [{ googleSearch: {} }]
+      }
+    });
+
+    const text = response.text || "Sem resposta";
+    return text.trim();
+  } catch (error: any) {
+    console.error("Gemini Generic Error:", error);
+    return `Erro ao gerar resposta: ${error.message}`;
+  }
 };
 
 /**

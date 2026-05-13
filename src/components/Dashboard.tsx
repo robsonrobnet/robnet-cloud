@@ -6,18 +6,24 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Tag, PieChart as PieChartIcon, 
-  Sparkles, CalendarDays, Activity, Building2, User, CreditCard, Calendar,
+  Sparkles, CalendarDays, Activity, Building2, CreditCard, Calendar,
   Wallet, Landmark, Receipt, Percent, AlertTriangle, FileText, CheckCircle2, Clock, ArrowUpCircle, ArrowDownCircle,
-  Zap, Brain, Target, ShieldCheck, Plus, X, Bell
+  Zap, Brain, Target, ShieldCheck, Plus, X, Bell, User as UserIcon
 } from 'lucide-react';
-import { Transaction, FinancialSummary, Category, TransactionScope, Company } from '../types';
+import { Transaction, FinancialSummary, Category, TransactionScope, Company, User } from '../types';
 import { FinancialService } from '../services/financialService';
+
+import { motion, AnimatePresence } from 'motion/react';
+
+import AIAnalyzer from './AIAnalyzer';
 
 interface DashboardProps {
   transactions: Transaction[];
   currentMonth: Date;
   categories: Category[];
   companies: Company[];
+  crmLeads?: any[]; 
+  currentUser: User;
   onAdd: (t: any) => void;
   onDelete: (id: string) => void;
   onUpdate: () => void;
@@ -30,9 +36,10 @@ const COLORS_PALETTE = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#14b8a6', '#f97316', '#a855f7', '#db2777', '#0ea5e9'
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, categories = [], companies = [], onAdd, onDelete, onUpdate, t }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, categories = [], companies = [], crmLeads = [], currentUser, onAdd, onDelete, onUpdate, t }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('ALL');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAIAnalyzer, setShowAIAnalyzer] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [formData, setFormData] = useState({
     description: '', amount: '', category_id: '', scope: 'BUSINESS' as TransactionScope, company_id: '',
@@ -129,6 +136,33 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
   };
 
   const viewData = getFilteredValues();
+
+  const crmStats = useMemo(() => {
+    const totalValue = crmLeads.reduce((acc, l) => acc + (l.value || 0), 0);
+    const activeLeads = crmLeads.filter(l => l.status !== 'WON' && l.status !== 'LOST').length;
+    const wonValue = crmLeads.filter(l => l.status === 'WON').reduce((acc, l) => acc + (l.value || 0), 0);
+    return { totalValue, activeLeads, wonValue };
+  }, [crmLeads]);
+
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: { type: 'spring' as const, stiffness: 100 }
+    }
+  };
 
   // Monthly Evolution (Last 6 months)
   const monthlyEvolutionData = useMemo(() => {
@@ -293,14 +327,118 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
     return null;
   };
 
+  const handleAIProcessed = async (extracted: Partial<Transaction>[]) => {
+    try {
+      for (const t of extracted) {
+        await onAdd(t);
+      }
+      setShowAIAnalyzer(false);
+      onUpdate();
+      alert(`Sucesso! ${extracted.length} transações foram importadas.`);
+    } catch (error) {
+      alert("Erro ao importar transações da IA: " + error);
+    }
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-700 pb-20">
+    <motion.div 
+      initial="hidden"
+      animate="visible"
+      variants={containerVariants}
+      className="space-y-8 pb-20 relative"
+    >
+      {/* Background Parallax Elements */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10">
+        <motion.div 
+          animate={{ 
+            y: [0, -20, 0],
+            rotate: [0, 5, 0],
+            scale: [1, 1.05, 1]
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/5 blur-[120px] rounded-full"
+        />
+        <motion.div 
+          animate={{ 
+            y: [0, 30, 0],
+            rotate: [0, -5, 0],
+            scale: [1, 1.1, 1]
+          }}
+          transition={{ duration: 15, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+          className="absolute bottom-10 left-[-5%] w-[400px] h-[400px] bg-emerald-500/5 blur-[100px] rounded-full"
+        />
+      </div>
+
+      {/* Header & CRM Pipeline Section */}
+      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-4 gap-6 bg-slate-900 dark:bg-white rounded-[3rem] p-8 shadow-2xl relative overflow-hidden text-white dark:text-slate-900 border border-white/5 dark:border-slate-200">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none" />
+        <div className="lg:col-span-1 border-r border-white/10 dark:border-slate-200 pr-6 relative z-10">
+          <div className="flex items-center gap-3 mb-4">
+             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-xl shadow-indigo-500/20 hover:scale-110 transition-transform"><Target size={20} /></div>
+             <div>
+                <h3 className="text-lg font-black uppercase tracking-tight">Vendas & CRM</h3>
+                <p className="text-[10px] font-bold text-white/50 dark:text-slate-500 uppercase tracking-widest">Performance Comercial</p>
+             </div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-3 rounded-2xl border border-white/5 dark:border-slate-100">
+              <span className="text-[10px] font-black uppercase opacity-60">Status Ativo</span>
+              <span className="text-sm font-black text-indigo-400 dark:text-indigo-600">{crmStats.activeLeads} Leads</span>
+            </div>
+            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-3 rounded-2xl border border-white/5 dark:border-slate-100">
+              <span className="text-[10px] font-black uppercase opacity-60">Faturamento Real</span>
+              <span className="text-sm font-black text-emerald-400 dark:text-emerald-600">R$ {crmStats.wonValue.toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pl-0 lg:pl-6 relative z-10">
+          <div className="flex flex-col justify-center">
+            <div className="flex justify-between items-end mb-1">
+               <p className="text-[10px] font-black uppercase opacity-50">Ticket Médio Estimado</p>
+               <TrendingUp size={14} className="text-indigo-400 mb-1" />
+            </div>
+            <h4 className="text-2xl font-black tabular-nums">R$ {(crmStats.totalValue / (crmStats.activeLeads || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</h4>
+            <div className="mt-3 w-full bg-white/10 dark:bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+               <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: '68%' }}
+                transition={{ duration: 1.5, ease: "circOut" }}
+                className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400" 
+               />
+            </div>
+          </div>
+          <div className="flex flex-col justify-center">
+             <div className="flex justify-between items-end mb-1">
+               <p className="text-[10px] font-black uppercase opacity-50">Taxa de Conversão</p>
+               <Zap size={14} className="text-emerald-400 mb-1" />
+            </div>
+            <h4 className="text-2xl font-black text-emerald-400 tabular-nums">24.8%</h4>
+            <div className="mt-3 w-full bg-white/10 dark:bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+               <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: '25%' }}
+                transition={{ duration: 1.5, ease: "circOut", delay: 0.2 }}
+                className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400" 
+               />
+            </div>
+          </div>
+          <div className="flex flex-col justify-center bg-white/5 dark:bg-slate-50 p-5 rounded-[2.5rem] border border-white/5 dark:border-slate-100 shadow-inner group cursor-pointer hover:bg-white/10 dark:hover:bg-slate-100/80 transition-all">
+             <div className="flex items-center gap-2 mb-2">
+                <div className="w-6 h-6 bg-amber-500/20 rounded-lg flex items-center justify-center"><Sparkles size={14} className="text-amber-500" /></div>
+                <p className="text-[10px] font-black uppercase text-amber-500 tracking-widest">Neural Insights</p>
+             </div>
+             <p className="text-[11px] font-bold leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity">"Detectamos 3 oportunidades com perfil 'PRO' prontas para envio de proposta imediata."</p>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Tab Selector */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-full md:w-fit overflow-x-auto">
           <button onClick={() => setActiveTab('ALL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ALL' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity size={14} /> Consolidado</button>
           <button onClick={() => setActiveTab('BUSINESS')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Building2 size={14} /> Empresas</button>
-          <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><User size={14} /> Pessoal</button>
+          <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><UserIcon size={14} /> Pessoal</button>
         </div>
 
         <button 
@@ -317,10 +455,17 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
         >
           <Plus size={16} /> Novo Lançamento
         </button>
-      </div>
+
+        <button 
+          onClick={() => setShowAIAnalyzer(true)}
+          className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2 border border-white/10"
+        >
+          <Sparkles size={16} className="text-indigo-400" /> Scanner Inteligente IA
+        </button>
+      </motion.div>
 
       {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl relative overflow-hidden group transition-all">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{t.balance}</p>
           <h4 className={`text-2xl font-black tabular-nums ${viewData.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>R$ {viewData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
@@ -344,10 +489,10 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
              <p className="mt-2 text-[10px] font-bold text-amber-500 bg-amber-50 dark:bg-amber-900/30 px-2 py-1 rounded-lg w-fit">Base: R$ {financialStatement.avgDailySpend.toFixed(0)}/dia</p>
            </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Bento Grid Visualizations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Monthly Evolution */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-8">
@@ -491,9 +636,9 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
             ))}
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Financial Insights */}
         <div className="bg-slate-900 dark:bg-white rounded-[3rem] p-8 text-white dark:text-slate-900 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-10"><Brain size={120} /></div>
@@ -561,10 +706,10 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Recent Transactions Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+      <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
         <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-500"><FileText size={20} /></div>
@@ -658,88 +803,103 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
              </tbody>
           </table>
         </div>
-      </div>
+      </motion.div>
 
       {/* ADD/EDIT MODAL */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar">
-            <button onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
-              <X size={20} />
-            </button>
-            
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-2xl flex items-center justify-center">
-                {editingTransaction ? <ArrowUpRight size={24} /> : <TrendingUp size={24} />}
-              </div>
-              <div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-white">
-                  {editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
-                </h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Preencha os detalhes financeiros</p>
-              </div>
-            </div>
+      <AnimatePresence>
+        {showAIAnalyzer && (
+          <AIAnalyzer 
+            currentUser={currentUser as any} 
+            onProcessed={handleAIProcessed}
+            onCancel={() => setShowAIAnalyzer(false)}
+          />
+        )}
 
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Lançamento</label>
-                <div className="flex gap-2 mt-1 mb-2">
-                  <button type="button" onClick={() => setFormData({...formData, type: 'INCOME'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'INCOME' ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingUp size={14} /> Receber</button>
-                  <button type="button" onClick={() => setFormData({...formData, type: 'EXPENSE'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'EXPENSE' ? 'bg-rose-500 text-white border-rose-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingDown size={14} /> Pagar</button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Escopo</label>
-                <div className="flex gap-2 mt-1 mb-2">
-                  <button type="button" onClick={() => setFormData({...formData, scope: 'PERSONAL'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'PERSONAL' ? 'bg-teal-500 text-white border-teal-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><User size={14} /> Pessoal</button>
-                  <button type="button" onClick={() => setFormData({...formData, scope: 'BUSINESS'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'BUSINESS' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><Building2 size={14} /> Empresa</button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail para Alertas/Cobrança</label>
-                <input type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.contact_email} onChange={e => setFormData({...formData, contact_email: e.target.value})} placeholder="exemplo@email.com" />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label>
-                <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label>
-                  <input type="number" step="0.01" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
-                  <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label>
-                  <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.category_id} onChange={e => setFormData({...formData, category_id: e.target.value})} required>
-                    <option value="">Selecione...</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label>
-                  <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
-                </div>
-              </div>
-
-              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2">
-                <ShieldCheck size={16} /> {editingTransaction ? 'Salvar Alterações' : 'Confirmar Lançamento'}
+        {showAddModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+            <motion.div 
+               initial={{ scale: 0.9, opacity: 0 }}
+               animate={{ scale: 1, opacity: 1 }}
+               exit={{ scale: 0.9, opacity: 0 }}
+               className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
+              <button onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
+                <X size={20} />
               </button>
-            </form>
+              
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-2xl flex items-center justify-center">
+                  {editingTransaction ? <ArrowUpRight size={24} /> : <TrendingUp size={24} />}
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 dark:text-white">
+                    {editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Preencha os detalhes financeiros</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSave} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Lançamento</label>
+                  <div className="flex gap-2 mt-1 mb-2">
+                    <button type="button" onClick={() => setFormData({...formData, type: 'INCOME'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'INCOME' ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingUp size={14} /> Receber</button>
+                    <button type="button" onClick={() => setFormData({...formData, type: 'EXPENSE'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.type === 'EXPENSE' ? 'bg-rose-500 text-white border-rose-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><TrendingDown size={14} /> Pagar</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Escopo</label>
+                  <div className="flex gap-2 mt-1 mb-2">
+                    <button type="button" onClick={() => setFormData({...formData, scope: 'PERSONAL'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'PERSONAL' ? 'bg-teal-500 text-white border-teal-500 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><UserIcon size={14} /> Pessoal</button>
+                    <button type="button" onClick={() => setFormData({...formData, scope: 'BUSINESS'})} className={`flex-1 p-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${formData.scope === 'BUSINESS' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}><Building2 size={14} /> Empresa</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail para Alertas/Cobrança</label>
+                  <input type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.contact_email} onChange={e => setFormData({...formData, contact_email: e.target.value})} placeholder="exemplo@email.com" />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label>
+                  <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label>
+                    <input type="number" step="0.01" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}><option value="PENDING">Pendente</option><option value="PAID">Pago / Recebido</option><option value="OVERDUE">Atrasado</option></select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoria</label>
+                    <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.category_id} onChange={e => setFormData({...formData, category_id: e.target.value})} required>
+                      <option value="">Selecione...</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label>
+                    <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2">
+                  <ShieldCheck size={16} /> {editingTransaction ? 'Salvar Alterações' : 'Confirmar Lançamento'}
+                </button>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 };
 

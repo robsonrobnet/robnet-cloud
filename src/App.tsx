@@ -12,10 +12,12 @@ import AdminSettings from './components/AdminSettings';
 import ReceivablesManager from './components/ReceivablesManager';
 import CreditLoansManager from './components/CreditLoansManager';
 import NfseManager from './components/NfseManager';
+import CRMManager from './components/CRMManager';
 import StripeManager from './components/StripeManager';
 import MasterConfig from './components/MasterConfig';
 import Tutorial from './components/Tutorial';
 import Login from './components/Login';
+import ShopManager from './components/Shop/ShopManager';
 import { translations } from './lib/translations';
 import { FinancialService } from './services/financialService';
 import { supabase } from './lib/supabase';
@@ -28,6 +30,7 @@ const App: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [crmLeads, setCrmLeads] = useState<any[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguage] = useState<Language>('pt');
@@ -69,26 +72,52 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem('finanai_session_v3');
-    if (saved && saved.trim() !== "" && saved.trim() !== "undefined") {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          setCurrentUser(parsed);
-          setLanguage(parsed.language || 'pt');
-        }
-      } catch (e) { 
-        console.warn("Session restore failed:", e);
-        localStorage.removeItem('finanai_session_v3'); 
+    
+    // Safety check BEFORE parsing - aggressively check for invalid session strings
+    const isInvalid = !saved || 
+                    saved === "undefined" || 
+                    saved === "null" || 
+                    saved === "[object Object]" ||
+                    saved.trim() === "" || 
+                    saved.trim() === "undefined";
+
+    if (isInvalid) {
+      if (saved) {
+        console.warn("[App] Found corrupted session string in localStorage, clearing.");
+        localStorage.removeItem('finanai_session_v3');
       }
-    } else if (saved === "undefined") {
-      localStorage.removeItem('finanai_session_v3');
+      return;
+    }
+
+    try {
+      // JSON.parse is monkey-patched in main.tsx for safety, but we still use try-catch
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && parsed.id) {
+        setCurrentUser(parsed);
+        if (parsed.language) setLanguage(parsed.language);
+      } else {
+        console.warn("[App] Session data invalid or missing required fields, clearing.");
+        localStorage.removeItem('finanai_session_v3');
+      }
+    } catch (e) { 
+      console.error("[App] Session restore CRITICAL error:", e);
+      localStorage.removeItem('finanai_session_v3'); 
     }
   }, []);
 
   // Persist Session
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('finanai_session_v3', JSON.stringify(currentUser));
+    if (currentUser && typeof currentUser === 'object' && currentUser.id) {
+      try {
+        const sessionData = JSON.stringify(currentUser);
+        if (sessionData && sessionData !== "undefined") {
+          localStorage.setItem('finanai_session_v3', sessionData);
+        }
+      } catch (e) {
+        console.error("Failed to persist session:", e);
+      }
+    } else if (currentUser === null || currentUser === undefined) {
+      localStorage.removeItem('finanai_session_v3');
     }
   }, [currentUser]);
 
@@ -109,10 +138,11 @@ const App: React.FC = () => {
       // Executa a sincronização em background para não bloquear a UI inicial se demorar
       FinancialService.syncRecurrence(currentUser.company_id).catch(console.warn);
 
-      const [transData, catData, msgData] = await Promise.all([
+      const [transData, catData, msgData, leadsData] = await Promise.all([
         FinancialService.getTransactions(currentUser.company_id, currentUser.id, currentUser.role),
         FinancialService.getCategories(currentUser.company_id),
-        FinancialService.getChatHistory(currentUser.id)
+        FinancialService.getChatHistory(currentUser.id),
+        FinancialService.getCRMLeads(currentUser.company_id)
       ]);
 
       let companiesData: Company[] = [];
@@ -146,6 +176,7 @@ const App: React.FC = () => {
 
       if (catData) setCategories(catData);
       if (msgData) setMessages(msgData);
+      if (leadsData) setCrmLeads(leadsData);
 
     } catch (e) { 
       console.error("Fetch Error:", e); 
@@ -155,6 +186,28 @@ const App: React.FC = () => {
   }, [currentUser]); // Dependência explícita
 
   useEffect(() => { if (currentUser) fetchData(); }, [currentUser, fetchData]);
+
+  // View Access Guard
+  useEffect(() => {
+    if (!currentUser || currentUser.is_master) return;
+    
+    // Public/Basic Views
+    const publicViews = [AppView.DASHBOARD, AppView.TUTORIAL];
+    if (publicViews.includes(view)) return;
+
+    // Admin Panel access check
+    if (view === AppView.ADMIN && (currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER')) return;
+
+    // Granular Permissions Check
+    // If permissions are explicitly defined, respect them. 
+    // If not, we rely on the Sidebar's UI gates (which are plan-based).
+    if (currentUser.permissions && Object.keys(currentUser.permissions).length > 0) {
+      const allowed = (currentUser.permissions as any)[view];
+      if (allowed === false) {
+        setView(AppView.DASHBOARD);
+      }
+    }
+  }, [view, currentUser]);
 
   const handleAddTransaction = async (newTrans: any) => {
     if (!currentUser) return;
@@ -349,7 +402,10 @@ const App: React.FC = () => {
         setIsOpen={setIsSidebarOpen} 
         currentUser={currentUser} 
         company={currentCompany}
-        onLogout={() => setCurrentUser(null)} 
+        onLogout={() => {
+          setCurrentUser(null);
+          localStorage.removeItem('finanai_session_v3');
+        }} 
         t={t} 
       />
       <main className="flex-1 lg:ml-64 relative flex flex-col h-screen overflow-hidden">
@@ -419,6 +475,10 @@ const App: React.FC = () => {
                <CreditLoansManager transactions={transactions} categories={categories} onUpdate={fetchData} />
             : view === AppView.NFSE ?
                <NfseManager currentUser={currentUser} />
+            : view === AppView.CRM ?
+               <CRMManager currentUser={currentUser} />
+            : view === AppView.SHOP ?
+               <ShopManager currentUser={currentUser} t={t} />
             : view === AppView.STRIPE ?
                <StripeManager />
             : view === AppView.MASTER_CONFIG ?
@@ -458,6 +518,8 @@ const App: React.FC = () => {
                 currentMonth={currentDate} 
                 categories={categories} 
                 companies={companies}
+                crmLeads={crmLeads}
+                currentUser={currentUser!}
                 onAdd={handleAddTransaction}
                 onDelete={async (id) => { await FinancialService.deleteTransaction(id); fetchData(); }}
                 onUpdate={fetchData}

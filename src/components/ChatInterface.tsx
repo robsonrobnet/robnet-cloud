@@ -32,6 +32,7 @@ const STATUS_MAP: Record<string, string> = {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, onAddTransaction, onAddBulkTransactions, onSaveMessage, currentUser, t, currentLang, onClose, transactions = [], categories, companies, onUpdateData }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
   
   // File State
@@ -46,6 +47,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   // Voice Recognition Refs
   const recognitionRef = useRef<any>(null);
   const silenceTimer = useRef<any>(null);
+  const transcriptRef = useRef<string>('');
 
   // Review Modal State
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -53,48 +55,52 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   const [pendingUpdates, setPendingUpdates] = useState<{ id: string; fields: Partial<Transaction> }[]>([]);
   const [pendingDeletions, setPendingDeletions] = useState<string[]>([]);
 
-  // ... (Voice recognition logic) ...
   useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
       
-      // IMPROVED CONFIGURATION FOR LONGER PAUSES
-      recognitionRef.current.continuous = true; // Keep listening even after a pause
+      recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true; 
       recognitionRef.current.lang = currentLang === 'pt' ? 'pt-BR' : 'en-US';
 
       recognitionRef.current.onresult = (event: any) => {
-        // Clear silence timer on every result (user is speaking)
         if (silenceTimer.current) clearTimeout(silenceTimer.current);
 
-        let finalTranscript = '';
+        let interimTranscript = '';
+        let finalTranscriptChunk = '';
+        
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscriptChunk += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
         
-        if (finalTranscript) {
-            setInput(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + finalTranscript);
+        if (finalTranscriptChunk) {
+            const newText = finalTranscriptChunk.trim();
+            transcriptRef.current += (transcriptRef.current && !transcriptRef.current.endsWith(' ') ? ' ' : '') + newText;
+            setInput(transcriptRef.current);
         }
 
-        // Set a new silence timer (Wait 2.5 seconds of silence before stopping)
+        // Set a new silence timer (Wait 2 seconds of silence before auto-sending)
         silenceTimer.current = setTimeout(() => {
             if (recognitionRef.current && isListening) {
-                recognitionRef.current.stop();
-                setIsListening(false);
+                handleSendTriggeredByVoice();
             }
-        }, 2500);
+        }, 2000);
       };
 
-      recognitionRef.current.onerror = () => {
+      recognitionRef.current.onerror = (event: any) => {
+          console.error("Speech recognition error", event.error);
           setIsListening(false);
           if (silenceTimer.current) clearTimeout(silenceTimer.current);
       };
       
-      // Removing direct onend=false to prevent premature stopping, handled by timer/manual toggle
       recognitionRef.current.onend = () => {
-          // Only truly stop if we are not intending to listen (fallback)
-          // setIsListening(false); 
+          // Fallback if it stops unexpectedly
+          if (isListening) setIsListening(false);
       };
     }
     
@@ -102,15 +108,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
         if (silenceTimer.current) clearTimeout(silenceTimer.current);
         if (recognitionRef.current) recognitionRef.current.stop();
     };
-  }, [currentLang]);
+  }, [currentLang, isListening]);
+
+  const handleSendTriggeredByVoice = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    
+    // Use a small delay to ensure the state is updated or use the ref
+    if (transcriptRef.current.trim()) {
+        handleSend(transcriptRef.current.trim());
+        transcriptRef.current = '';
+    }
+  };
 
   const toggleListening = () => {
     if (isListening) {
-        recognitionRef.current?.stop();
-        setIsListening(false);
-        if (silenceTimer.current) clearTimeout(silenceTimer.current);
+        handleSendTriggeredByVoice();
     } else { 
         setIsListening(true); 
+        transcriptRef.current = '';
         try {
             recognitionRef.current?.start();
         } catch (e) {
@@ -167,31 +184,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
     return `\nDADOS DO BANCO DE DADOS (Últimos 200 lançamentos com ID):\n${header}\n${rows}`;
   };
 
-  const handleSend = async () => {
-    if ((!input.trim() && !selectedFile) || isLoading) return;
+  const handleSend = async (forcedInput?: string) => {
+    const finalInputValue = forcedInput || input.trim();
+    if ((!finalInputValue && !selectedFile) || isLoading) return;
     
     // Stop listening if sending manually
-    if (isListening) {
-        recognitionRef.current?.stop();
-        setIsListening(false);
-        if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    if (isListening && !forcedInput) {
+        handleSendTriggeredByVoice();
+        return;
     }
 
     const isImage = selectedFile?.type.startsWith('image/');
     const defaultPrompt = isImage ? "Analise este recibo/comprovante e extraia os dados financeiros." : "";
-    const finalInput = input.trim() || defaultPrompt;
+    const finalInputText = finalInputValue || defaultPrompt;
 
     const userMsg: ChatMessage = { 
       id: Date.now().toString(), 
       role: 'user', 
-      content: selectedFile ? `[Arquivo: ${selectedFile.name}] ${finalInput}` : finalInput, 
+      content: selectedFile ? `[Arquivo: ${selectedFile.name}] ${finalInputText}` : finalInputText, 
       timestamp: Date.now() 
     };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     onSaveMessage(userMsg);
     
-    const currentInput = finalInput;
+    const currentInput = finalInputText;
     const currentFile = selectedFile;
     const forcedScope = manualScope;
     
@@ -206,6 +223,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
     );
 
     setInput(''); clearFile(); setIsLoading(true);
+    setAnalysisStage('Preparando documento...');
     if (filePreview) setLastScannedImage(filePreview);
     else setLastScannedImage(null);
 
@@ -217,6 +235,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
         
         // 1. PROCESSAMENTO DE EXCEL (XLSX/XLS) -> CONVERTER PARA CSV
         if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+           setAnalysisStage('Convertendo planilha...');
            reader.readAsArrayBuffer(currentFile);
            reader.onload = (e) => {
               try {
@@ -235,17 +254,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
         }
         // 2. PROCESSAMENTO DE TEXTO (CSV, OFX, TXT)
         else if (fileName.endsWith('.csv') || fileName.endsWith('.ofx') || fileName.endsWith('.txt')) {
+          setAnalysisStage('Lendo dados estruturados...');
           reader.readAsText(currentFile);
           reader.onload = () => resolve({ mimeType: fileName.endsWith('.ofx') ? 'text/ofx' : 'text/csv', data: reader.result as string });
         } 
         // 3. PROCESSAMENTO DE IMAGEM/PDF (OCR Nativo do Gemini)
         else {
+          setAnalysisStage('Escanenando imagem (OCR)...');
           reader.readAsDataURL(currentFile);
           reader.onload = () => resolve({ mimeType: currentFile.type || 'application/pdf', data: reader.result as string });
         }
       });
     }
 
+    setAnalysisStage('IA analisando fluxos e categorias...');
     let promptText = forcedScope !== 'AUTO' ? `${currentInput}. (Force Context: ${forcedScope})` : currentInput;
     const dbContext = getDatabaseContext();
     const chatHistory = updatedMessages.slice(-10).map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content || '' }] })); chatHistory.pop();
@@ -357,6 +379,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
     setMessages(prev => [...prev, aiMsg]);
     onSaveMessage(aiMsg);
     setIsLoading(false);
+    setAnalysisStage('');
   };
 
   // ... (Modal logic same as before, focusing on Render of Updates) ...
@@ -638,7 +661,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-slate-50/30 dark:bg-slate-950/30">
         {messages.map((m) => (<div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-[2rem] p-4 md:p-5 shadow-sm border ${m.role === 'user' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-tr-none border-slate-900 dark:border-white' : 'bg-emerald-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border-emerald-100 dark:border-slate-700'}`}><p className="text-xs md:text-sm font-medium leading-relaxed whitespace-pre-line text-current">{m.content || <span className="italic opacity-50">[Sem conteúdo de texto]</span>}</p></div></div>))}
-        {isLoading && <div className="flex justify-start"><div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full px-4 py-3 flex items-center gap-3 shadow-sm"><Loader2 className="animate-spin text-emerald-600" size={16} /><span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Auditor FinanAI analisando...</span></div></div>}
+        {isLoading && <div className="flex justify-start"><div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full px-4 py-3 flex items-center gap-3 shadow-sm"><Loader2 className="animate-spin text-emerald-600" size={16} /><span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">{analysisStage || 'Auditor FinanAI analisando...'}</span></div></div>}
       </div>
       <div className="p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 shrink-0">
         {selectedFile && <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700 w-fit pr-4 animate-in slide-in-from-bottom-2">{filePreview ? <img src={filePreview} className="w-10 h-10 object-cover rounded-xl border border-slate-200 dark:border-slate-600" alt="Preview" /> : <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-xl flex items-center justify-center border border-slate-200 dark:border-slate-600">{getFileIcon(selectedFile.type, selectedFile.name)}</div>}<div className="flex flex-col"><span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide truncate max-w-[150px]">{selectedFile.name}</span><span className="text-[9px] font-bold text-slate-400 uppercase">{(selectedFile.size / 1024).toFixed(1)} KB</span></div><button onClick={clearFile} className="ml-2 bg-rose-500 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X size={12} /></button></div>}
@@ -664,7 +687,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
               <Camera size={20} />
             </button>
           </div>
-<div className="flex-1 relative group"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" value={input} onChange={(e) => setInput(e.target.value)} onPaste={handlePaste} placeholder="Digite..." onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><div className="absolute right-2 top-2 flex gap-1"><button onClick={toggleListening} className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} title="Falar Comando">{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button><button onClick={handleSend} className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"><Send size={16} /></button></div></div></div>
+<div className="flex-1 relative group"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" value={input} onChange={(e) => setInput(e.target.value)} onPaste={handlePaste} placeholder="Digite..." onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><div className="absolute right-2 top-2 flex gap-1"><button onClick={toggleListening} className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} title="Falar Comando">{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button><button onClick={() => handleSend()} className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"><Send size={16} /></button></div></div></div>
       </div>
     </div>
   );

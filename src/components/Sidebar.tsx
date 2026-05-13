@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { 
-  LayoutDashboard, Receipt, MessageSquare, LogOut, ChevronRight, Shield, TrendingUp, TrendingDown, Lock, CreditCard, FileText, Crown, Clock, BookOpen, ShieldCheck
+  LayoutDashboard, Receipt, MessageSquare, LogOut, ChevronRight, Shield, TrendingUp, TrendingDown, Lock, CreditCard, FileText, Crown, Clock, BookOpen, ShieldCheck, ShoppingBag
 } from 'lucide-react';
 import { AppView, User, Company } from '../types';
 
@@ -57,56 +57,70 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
         id: AppView.DASHBOARD, 
         label: t.dashboard, 
         icon: LayoutDashboard, 
-        allowed: canAccess('BASIC'),
+        allowed: currentUser.is_master || (currentUser.permissions?.DASHBOARD ?? canAccess('BASIC')),
         reqLabel: 'Free'
     },
     { 
         id: AppView.TRANSACTIONS, 
         label: t.finances, 
         icon: Receipt, 
-        allowed: canAccess('BASIC'),
+        allowed: currentUser.is_master || (currentUser.permissions?.TRANSACTIONS ?? canAccess('BASIC')),
         reqLabel: 'Free'
     },
     { 
         id: AppView.RECEIVABLES, 
         label: "Contas a Receber", 
         icon: TrendingUp, 
-        allowed: canAccess('INTERMEDIATE'),
+        allowed: currentUser.is_master || (currentUser.permissions?.RECEIVABLES ?? canAccess('INTERMEDIATE')),
         reqLabel: 'Básico'
     },
     { 
         id: AppView.PAYABLES, 
         label: "Contas a Pagar", 
         icon: TrendingDown, 
-        allowed: canAccess('INTERMEDIATE'),
+        allowed: currentUser.is_master || (currentUser.permissions?.PAYABLES ?? canAccess('INTERMEDIATE')),
         reqLabel: 'Básico'
     },
     { 
         id: AppView.LOANS, 
         label: "Cartões & Empréstimos", 
         icon: CreditCard, 
-        allowed: canAccess('PROFESSIONAL'),
+        allowed: currentUser.is_master || (currentUser.permissions?.LOANS ?? canAccess('PROFESSIONAL')),
         reqLabel: 'Intermed.' 
     },
     { 
         id: AppView.CHAT, 
         label: t.ai_assistant, 
         icon: MessageSquare, 
-        allowed: canAccess('PROFESSIONAL'),
+        allowed: currentUser.is_master || (currentUser.permissions?.CHAT ?? canAccess('PROFESSIONAL')),
         reqLabel: 'Intermed.'
     },
     { 
         id: AppView.NFSE, 
         label: "NFS-e São Paulo", 
         icon: FileText, 
-        allowed: canAccess('ENTERPRISE'),
+        allowed: currentUser.is_master || (currentUser.permissions?.NFSE ?? canAccess('ENTERPRISE')),
         reqLabel: 'Profissional'
+    },
+    { 
+        id: AppView.CRM, 
+        label: "CRM de Vendas", 
+        icon: LayoutDashboard, 
+        allowed: currentUser.is_master || (currentUser.permissions?.CRM ?? canAccess('PROFESSIONAL')),
+        reqLabel: 'Intermed.'
+    },
+    { 
+        id: AppView.SHOP, 
+        label: "Loja", 
+        icon: ShoppingBag, 
+        allowed: currentUser.is_master || (currentUser.permissions?.SHOP ?? canAccess('PROFESSIONAL')),
+        reqLabel: 'Intermed.'
     },
     { 
         id: AppView.STRIPE, 
         label: "Stripe Payments", 
         icon: CreditCard, 
-        allowed: canAccess('PROFESSIONAL'),
+        allowed: currentUser.is_master || (currentUser.permissions?.STRIPE ?? canAccess('PROFESSIONAL')),
         reqLabel: 'Intermed.'
     },
     { 

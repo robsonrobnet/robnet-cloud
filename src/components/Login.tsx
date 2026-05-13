@@ -55,14 +55,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
   const handleEmergencyUpdate = async () => {
     setIsLoading(true);
     try {
-      const success = await (FinancialService as any).updateMasterUser();
-      if (success) {
-        alert("Usuário Master atualizado com sucesso!");
+      const result = await (FinancialService as any).updateMasterUser();
+      if (result.success) {
+        alert("✅ USUÁRIO MASTER SINCRONIZADO!\n\nUse os dados abaixo para logar:\nUsuário: " + result.username + "\nSenha: " + result.password + "\n\nO acesso foi verificado e gravado no banco de dados.");
       } else {
-        alert("Usuário Master não encontrado ou erro na conexão.");
+        alert("❌ Erro ao sincronizar Usuário Master no Banco de Dados.");
       }
-    } catch (e) {
-      alert("Erro crítico: " + formatSupabaseError(e));
+    } catch (e: any) {
+      console.error("Critical Login Error:", e);
+      alert("ERRO CRÍTICO NA DATABASE:\n" + (e.message || "Verifique sua conexão."));
     } finally {
       setIsLoading(false);
     }
@@ -177,31 +178,41 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
         const { data: userCandidates, error: searchError } = await supabase
           .from('users')
           .select('*, companies(*)')
-          .or(`username.ilike.${cleanUsername},access_key.eq.${cleanUsername}`);
+          .or(`username.ilike."${cleanUsername}",access_key.eq."${cleanUsername}"`);
 
         if (searchError) throw searchError;
 
-        const user = userCandidates?.find(u => u.password === cleanPassword);
-        if (!user) throw new Error('Credenciais inválidas.');
+        if (!userCandidates || userCandidates.length === 0) {
+          if (cleanUsername.toLowerCase() === 'master') {
+            throw new Error("Usuário Master não encontrado na Database. Clique no ícone de engrenagem no topo e use 'Atualizar Usuário Master' para provisionar as credenciais.");
+          }
+          throw new Error("Usuário ou Chave de Acesso não encontrada. Verifique se digitou corretamente ou se sua Conta foi ativada.");
+        }
 
-        const companyData = Array.isArray(user.companies) ? user.companies[0] : user.companies;
-        if (companyData && companyData.scheduled_deletion_date) {
+        const user = userCandidates.find(u => u.password === cleanPassword);
+        if (!user) {
+          throw new Error("Senha incorreta. Verifique se o Caps Lock está ativado.");
+        }
+
+        const companyData = Array.isArray(user.companies) ? user.companies[0] : (user.companies || {});
+        if (companyData.scheduled_deletion_date) {
             const deletionDate = new Date(companyData.scheduled_deletion_date);
             if (new Date() > deletionDate) throw new Error("Conta encerrada.");
             alert(`Conta agendada para exclusão em ${deletionDate.toLocaleDateString()}.`);
         }
 
-        // FIX: Renamed createdAt to created_at
         onLoginSuccess({
           id: user.id,
           company_id: user.company_id,
           username: user.username,
           email: user.email,
           role: user.role as UserRole,
-          plan: (companyData?.plan || 'FREE') as UserPlan,
+          plan: (companyData.plan || 'FREE') as UserPlan,
           language: (user.language as Language) || 'pt',
           created_at: user.created_at,
-          access_key: user.access_key
+          access_key: user.access_key,
+          is_master: user.is_master,
+          permissions: user.permissions
         });
       }
     } catch (err: any) { 

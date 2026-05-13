@@ -31,22 +31,116 @@ app.get("/api/health", (req, res) => {
 });
 
 // --- SUPABASE CLIENT (Backend) ---
-const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+const DEFAULT_SUPABASE_URL = 'https://uifexroywtnmelgxfbxc.supabase.co';
+const supabaseUrl = (process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL).trim().replace(/\/$/, "");
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+
+const maskKey = (key: string) => key ? `${key.substring(0, 8)}...${key.substring(key.length - 4)}` : "MISSING";
+
+console.log(`[Supabase Config] URL: ${supabaseUrl}`);
+console.log(`[Supabase Config] Service Key: ${maskKey(supabaseServiceKey)}`);
+console.log(`[Supabase Config] Anon Key: ${maskKey(supabaseAnonKey)}`);
+
+// Use Service Role key for backend operations if available, otherwise fallback to Anon key
+const supabase = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey);
+
+if (!supabaseServiceKey) {
+  console.warn("[Backend] WARNING: SUPABASE_SERVICE_ROLE_KEY is missing. Backend operations will be subject to RLS policies.");
+}
+
+// --- EMERGENCY MASTER ROUTE ---
+app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
+  const isUsingServiceRole = !!supabaseServiceKey;
+  
+  if (!isUsingServiceRole) {
+    console.warn("[Backend] Sync Master: Tentando sincronizar SEM SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  const SYSTEM_COMPANY_ID = '00000000-0000-0000-0000-000000000000';
+  const MASTER_PASSWORD = '2298R@b';
+  const MASTER_KEY = 'MASTER-KEY-9999';
+
+  try {
+    console.log(`[Backend] Sincronizando infraestrutura Master (Bypass RLS: ${isUsingServiceRole})...`);
+    
+    // 1. Check if company exists first to avoid unnecessary RLS-blocked upserts
+    const { data: existingComp, error: checkError } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', SYSTEM_COMPANY_ID)
+      .maybeSingle();
+
+    if (checkError) {
+       console.warn("[Backend] Error checking company existence:", checkError);
+    }
+
+    if (!existingComp) {
+      console.log("[Backend] Criando Empresa Master (System)...");
+      const { error: compError } = await supabase.from('companies').upsert({
+        id: SYSTEM_COMPANY_ID,
+        name: 'FinanAI System',
+        plan: 'ENTERPRISE'
+      }, { onConflict: 'id' });
+
+      if (compError) {
+        console.error("[Backend] Error inserting/updating company:", compError);
+        throw new Error(`Erro na Tabela 'companies': ${compError.message} (${compError.code || '?'}). ${!isUsingServiceRole ? 'DICA: Verifique se a SUPABASE_SERVICE_ROLE_KEY foi configurada ou se as políticas RLS permitem inserção anônima.' : ''}`);
+      }
+    } else {
+      console.log("[Backend] Empresa Master já existe.");
+    }
+
+    // 2. Create user (or update)
+    const { error: userError } = await supabase.from('users').upsert({
+      username: 'Master',
+      password: MASTER_PASSWORD,
+      role: 'MANAGER',
+      is_master: true,
+      company_id: SYSTEM_COMPANY_ID,
+      email: 'suporte@finanai.com',
+      plan: 'ENTERPRISE',
+      access_key: MASTER_KEY,
+      full_name: 'Master System Admin'
+    }, { onConflict: 'username' });
+
+    if (userError) {
+      console.error("[Backend] Error inserting/updating master user:", userError);
+      throw new Error(`Erro na Tabela 'users': ${userError.message} (${userError.code || '?'})`);
+    }
+
+    res.json({ 
+      success: true, 
+      username: 'Master', 
+      password: MASTER_PASSWORD,
+      key: MASTER_KEY,
+      bypassedRLS: isUsingServiceRole
+    });
+  } catch (error: any) {
+    console.error("[Backend] Sync Master Critical Error:", error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      code: error.code || '500',
+      hint: !isUsingServiceRole ? "A chave 'SUPABASE_SERVICE_ROLE_KEY' não foi detectada. Adicione-a nas variáveis de ambiente para ignorar as regras de RLS." : "Verifique as políticas RLS no console do Supabase."
+    });
+  }
+});
 
 // --- SMTP CONFIGURATION ---
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "mail.robnet.com.br",
   port: parseInt(process.env.SMTP_PORT || "465"),
-  secure: (process.env.SMTP_PORT || "465") === "465", // true for 465, false for other ports
+  secure: (process.env.SMTP_PORT || "465") === "465",
   auth: {
     user: process.env.SMTP_USER || "finaai@robnet.com.br",
-    pass: process.env.SMTP_PASS || "2298R@b161047#",
+    pass: process.env.SMTP_PASS || "2298R@b161047#", // Corrected per user history
   },
   tls: {
-    rejectUnauthorized: false // Often needed for custom mail servers
-  }
+    rejectUnauthorized: false
+  },
+  debug: true,
+  logger: true
 });
 
 // Verify transporter connection on startup

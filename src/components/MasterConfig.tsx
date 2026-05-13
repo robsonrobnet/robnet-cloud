@@ -18,7 +18,7 @@ const MasterConfig: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
 
-  const MASTER_PASSWORD = 'MASTER_FINANAI_2026';
+  const MASTER_PASSWORD = '2298R@b';
 
   useEffect(() => {
     if (isAuthorized) {
@@ -67,7 +67,8 @@ const MasterConfig: React.FC = () => {
         .update({
           name: editForm.name,
           plan: editForm.plan,
-          enabled_modules: editForm.enabled_modules
+          enabled_modules: editForm.enabled_modules,
+          webhook_url: editForm.webhook_url
         })
         .eq('id', isEditing);
 
@@ -289,12 +290,11 @@ const MasterConfig: React.FC = () => {
                         ))}
                       </div>
                     </div>
-
                     <div>
                       <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                         <LayoutGrid size={14} /> Módulos Liberados
                       </h4>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-3 mb-8">
                         {Object.keys(AppView).filter(k => k !== 'MASTER_CONFIG').map(module => (
                           <button 
                             key={module}
@@ -305,6 +305,21 @@ const MasterConfig: React.FC = () => {
                             {editForm.enabled_modules?.includes(module) ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                           </button>
                         ))}
+                      </div>
+
+                      <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <Database size={14} /> Integrações & Webhooks
+                      </h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">N8N / WhatsApp Webhook URL</label>
+                          <input 
+                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                            placeholder="https://n8n.seuservidor.com/webhook/..."
+                            value={editForm.webhook_url || ''}
+                            onChange={e => setEditForm({...editForm, webhook_url: e.target.value})}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

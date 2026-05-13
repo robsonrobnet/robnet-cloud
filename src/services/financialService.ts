@@ -2,7 +2,7 @@
 // services/financialService.ts
 
 import { supabase, formatSupabaseError } from '../lib/supabase';
-import { Transaction, Category, ChatMessage, FinancialSummary, User } from '../types';
+import { Transaction, Category, ChatMessage, FinancialSummary, User, CRMLeadStatus, CRMActivity, AppView } from '../types';
 
 export const FinancialService = {
   /**
@@ -417,14 +417,14 @@ export const FinancialService = {
     // 2. NFSe RPS
     if (options.nfse) {
       try {
-        const query = supabase.from('nfse_rpss').delete({ count: 'exact' });
+        const query = supabase.from('nfse_rps').delete({ count: 'exact' });
         if (companyId !== 'ALL') {
           query.eq('company_id', companyId);
         }
         const { count: rCount } = await query;
         totalCount += (rCount || 0);
       } catch (e) {
-        console.warn("Could not wipe nfse_rpss:", e);
+        console.warn("Could not wipe nfse_rps:", e);
       }
     }
 
@@ -457,7 +457,7 @@ export const FinancialService = {
     if (cRes.error) throw cRes.error;
 
     // 3. NFSe Config
-    const nRes = await supabase.from('nfse_config').delete().eq('company_id', companyId);
+    const nRes = await supabase.from('nfse_configs').delete().eq('company_id', companyId);
     if (nRes.error) throw nRes.error;
 
     // 4. Other Users
@@ -469,33 +469,35 @@ export const FinancialService = {
 
   /**
    * Emergency: Update Master User Password
+   * Improved with robust error handling for RLS and fixed IDs.
+   * This ensures the 'Master' access is always valid and recorded in the database.
    */
   async updateMasterUser() {
     try {
-      const { data: user } = await supabase
-        .from('users')
-        .select('id')
-        .eq('username', 'Master')
-        .maybeSingle();
+      console.log("[FinancialService] Solicitando sincronização Master ao Servidor...");
+      const response = await fetch('/api/admin/sync-master', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
 
-      if (user) {
-        const { error } = await supabase
-          .from('users')
-          .update({ 
-            password: '2298R@b',
-            role: 'MANAGER'
-          })
-          .eq('id', user.id);
-        if (error) throw error;
-        console.log("Master user updated successfully (Password & Role).");
-        return true;
-      } else {
-        console.warn("Master user not found in database.");
-        return false;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro na resposta do servidor");
       }
-    } catch (e) {
-      console.error("Failed to update Master user:", e);
-      return false;
+
+      const result = await response.json();
+      console.log("[FinancialService] Sincronização Master concluída via Backend.");
+      
+      return {
+        success: true,
+        username: result.username,
+        password: result.password,
+        key: result.key,
+        message: "Sincronização completa via Backend (RLS bypassed)."
+      };
+    } catch (e: any) {
+      console.error("[FinancialService] Falha na sincronização via Backend:", e);
+      throw new Error(`FALHA NA SINCRONIZAÇÃO: ${e.message}`);
     }
   },
 
@@ -508,7 +510,10 @@ export const FinancialService = {
       .limit(50);
       
     if (error) throw error;
-    return data as ChatMessage[];
+    return data.map(m => ({
+      ...m,
+      timestamp: new Date(m.timestamp).getTime()
+    })) as ChatMessage[];
   },
 
   async saveChatMessage(userId: string, role: 'user' | 'assistant', content: string) {
@@ -516,8 +521,79 @@ export const FinancialService = {
       user_id: userId,
       role,
       content,
-      timestamp: Date.now()
+      timestamp: new Date().toISOString()
     }]);
+  },
+
+  /**
+   * CRM Methods
+   */
+  async getCRMLeads(companyId: string) {
+    const { data, error } = await supabase
+      .from('crm_leads')
+      .select('*, contact:crm_contacts(*)')
+      .eq('company_id', companyId)
+      .order('updated_at', { ascending: false });
+    
+    if (error) {
+       console.warn("CRM table might not be ready:", error.message);
+       return [];
+    }
+    return data;
+  },
+
+  async updateLeadStatus(leadId: string, status: CRMLeadStatus) {
+    const { data, error } = await supabase
+      .from('crm_leads')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', leadId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateLeadAI(leadId: string, aiData: { score: number, insight: string }) {
+    const { error } = await supabase
+      .from('crm_leads')
+      .update({ 
+        score: aiData.score, 
+        ai_insight: aiData.insight,
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', leadId);
+    if (error) throw error;
+  },
+
+  async createCRMActivity(activity: Partial<CRMActivity>) {
+    const { data, error } = await supabase
+      .from('crm_activities')
+      .insert([activity])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async getCRMActivities(leadId: string) {
+    const { data, error } = await supabase
+      .from('crm_activities')
+      .select('*')
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false });
+    if (error) return [];
+    return data;
+  },
+
+  async getCRMContacts(companyId: string) {
+    const { data, error } = await supabase
+      .from('crm_contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true });
+    
+    if (error) return [];
+    return data;
   },
 
   /**

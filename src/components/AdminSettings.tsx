@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, Users, Building2, Tags, Settings, Plus, Edit, Trash2, 
-  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette, DollarSign, Upload, Mail
+  Save, X, CheckCircle2, AlertTriangle, Database, Activity, Brain, Key, Server, Lock, FileText, Loader2, RefreshCw, Skull, Eraser, AlertOctagon, Download, Terminal, Unlock, Cpu, CloudLightning, Globe, Palette, DollarSign, Upload, Mail, ExternalLink
 } from 'lucide-react';
 import { supabase, formatSupabaseError, updateSupabaseConfig } from '../lib/supabase';
-import { User, Company, Category, UserRole, UserPlan, Language } from '../types';
+import { User, Company, Category, UserRole, UserPlan, Language, AppView } from '../types';
 import { FinancialService } from '../services/financialService';
 import { testGeminiConnection } from '../services/geminiService';
 import { saveSecureSetting, loadSecureSetting } from '../lib/crypto';
@@ -79,6 +79,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     stripe_key: loadSecureSetting('stripe_key') || '',
     whatsapp_url: loadSecureSetting('whatsapp_url') || '',
     whatsapp_key: loadSecureSetting('whatsapp_key') || '',
+    webhook_url: loadSecureSetting('webhook_url') || '',
     nfse_user: loadSecureSetting('nfse_user') || '',
     nfse_pass: loadSecureSetting('nfse_pass') || '',
     nfse_cert_file: loadSecureSetting('nfse_cert_file') || '',
@@ -287,11 +288,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     // Save specific service credentials
     Object.entries(credentials).forEach(([key, value]) => {
       // Only save keys related to the current service to avoid overwriting others with stale state
-      if (key.startsWith(service)) {
+      if (key.startsWith(service) && value !== undefined && value !== null) {
         if (key.includes('key') || key.includes('pass') || key.includes('url') || key.includes('file')) {
-          saveSecureSetting(key, value);
+          saveSecureSetting(key, String(value));
         } else {
-          localStorage.setItem(key, value);
+          localStorage.setItem(key, String(value));
         }
       }
     });
@@ -309,6 +310,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       case 'stripe': checkStripe(); break;
       case 'nfse': checkNfse(); break;
       case 'whatsapp': checkWhatsApp(); break;
+      case 'webhook': alert("Webhook configurado com sucesso para automações N8N."); break;
       default: checkAllServices();
     }
   };
@@ -438,30 +440,53 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingUser?.id) return;
+    if (!editingUser) return;
 
     setIsLoading(true);
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          role: editingUser.role,
-          plan: editingUser.plan,
-          username: editingUser.username,
-          email: editingUser.email,
-          whatsapp: editingUser.whatsapp
-        })
-        .eq('id', editingUser.id);
+      if (editingUser.id) {
+        const { error } = await supabase
+          .from('users')
+          .update({
+            role: editingUser.role,
+            plan: editingUser.plan,
+            username: editingUser.username,
+            email: editingUser.email,
+            whatsapp: editingUser.whatsapp,
+            permissions: editingUser.permissions
+          })
+          .eq('id', editingUser.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        if (!editingUser.username) throw new Error("Username é obrigatório.");
+        
+        const accessKey = Math.random().toString(36).substring(2, 10).toUpperCase();
+        const { error } = await supabase
+          .from('users')
+          .insert([{
+            company_id: currentUser.company_id,
+            username: editingUser.username,
+            email: editingUser.email,
+            whatsapp: editingUser.whatsapp,
+            role: editingUser.role || 'USER',
+            plan: editingUser.plan || 'FREE',
+            permissions: editingUser.permissions || {},
+            password: '123', // Default
+            access_key: accessKey
+          }]);
+
+        if (error) throw error;
+        alert(`Terminal criado com acesso inicial:\nUsuário: ${editingUser.username}\nSenha: 123\nChave: ${accessKey}`);
+      }
 
       setShowUserModal(false);
       setEditingUser(null);
       fetchAdminData();
-      setSuccessMessage("Terminal atualizado com sucesso.");
+      setSuccessMessage("Terminal salvo com sucesso.");
       setShowSuccessModal(true);
     } catch (e: any) {
-      alert("Erro ao atualizar usuário: " + formatSupabaseError(e));
+      alert("Erro ao gerenciar acesso: " + formatSupabaseError(e));
     } finally {
       setIsLoading(false);
     }
@@ -527,6 +552,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             <div className="space-y-8 animate-in fade-in">
                <div className="flex items-center justify-between">
                   <div><h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-3"><Users size={20} className="text-indigo-500" /> Gestão de Acessos</h3><p className="text-xs text-slate-400 font-bold mt-1">Terminais autorizados para esta empresa</p></div>
+                  <button onClick={() => { setEditingUser({ role: 'USER', plan: currentUser.plan } as any); setShowUserModal(true); }} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl hover:scale-105 transition-all"><Plus size={16}/> Novo Terminal</button>
                </div>
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {users.map(u => (
@@ -538,6 +564,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                <div className="flex items-center gap-2 mt-1">
                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-600' : u.role === 'MANAGER' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{u.role}</span>
                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">{u.plan}</span>
+                                   <span className="text-[9px] font-mono text-slate-400 font-bold ml-2">ID: {u.access_key}</span>
                                </div>
                            </div>
                         </div>
@@ -817,8 +844,14 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
           {activeTab === 'SYSTEM' && (
              <div className="space-y-8 animate-in fade-in max-w-4xl mx-auto">
-                 <div className="text-center space-y-2 mb-10"><div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner border border-indigo-100"><Database size={40} /></div><h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Setup de Conexão</h3><p className="text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">Configuração de Gateway Supabase</p></div>
-                 <div className="grid grid-cols-1 gap-6">
+                 <div className="text-center space-y-2 mb-10">
+                    <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner border border-indigo-100">
+                      <Database size={40} />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Setup de Conexão</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">Configuração de Gateway Supabase</p>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="p-8 bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4">Project Endpoint URL</label>
                         <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 dark:text-white" value={sysConfig.dbUrl} onChange={e => setSysConfig({...sysConfig, dbUrl: e.target.value})} placeholder="https://..." />
@@ -828,6 +861,78 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <input type="password" className="w-full bg-white dark:bg-slate-900 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 dark:text-white" value={sysConfig.dbKey} onChange={e => setSysConfig({...sysConfig, dbKey: e.target.value})} placeholder="eyJ..." />
                     </div>
                  </div>
+
+                 {/* DATABASE STRUCTURE SECTION */}
+                 <div className="p-8 bg-slate-900 dark:bg-black border border-slate-700 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform"><Database size={80} className="text-indigo-500" /></div>
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center border border-indigo-500/30">
+                            <FileText size={24} />
+                        </div>
+                        <div>
+                            <h4 className="text-lg font-black text-white uppercase tracking-tight">Estrutura do Banco de Dados</h4>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Sincronização de Tabelas & Funções</p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4 relative z-10">
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                            Para garantir que todas as funcionalidades do terminal (Shop, CRM, NFSe) funcionem corretamente, 
+                            você deve executar o script de configuração no seu console do Supabase.
+                        </p>
+                        
+                        <div className="bg-slate-800/50 rounded-2xl p-5 border border-slate-700/50">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Script Local</span>
+                                <span className="text-[9px] font-bold text-slate-500 uppercase">root/database.sql</span>
+                            </div>
+                            <p className="text-[10px] text-slate-300 font-mono bg-black/30 p-2 rounded-lg"># Arquivo de setup gerado com sucesso</p>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                            <a 
+                              href="/database.sql" 
+                              target="_blank" 
+                              className="flex-1 bg-white/5 hover:bg-white/10 text-white border border-white/10 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all"
+                            >
+                                <Download size={14} /> Baixar Script SQL
+                            </a>
+                            <button 
+                              onClick={() => {
+                                const url = sysConfig.dbUrl ? `${sysConfig.dbUrl.replace('/rest/v1', '')}/project/_/sql` : 'https://supabase.com/dashboard/project/_/sql';
+                                window.open(url.replace('https://api.', 'https://'), '_blank');
+                              }}
+                              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 shadow-lg transition-all"
+                            >
+                                <ExternalLink size={14} /> Abrir SQL Editor <span className="opacity-50">(Supabase)</span>
+                            </button>
+                        </div>
+                    </div>
+                 </div>
+
+                 {/* WEBHOOK SECTION */}
+                 <div className="p-8 bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 rounded-[2.5rem]">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2 bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-400 rounded-xl"><Globe size={18}/></div>
+                        <div>
+                            <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Automação & Webhooks (N8N)</h4>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Integração com Assistente WhatsApp IA</p>
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block ml-1">Webhook URL Endpoint</label>
+                        <input 
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
+                            placeholder="https://n8n.seuservidor.com/webhook/..." 
+                            value={credentials.webhook_url}
+                            onChange={e => setCredentials({...credentials, webhook_url: e.target.value})}
+                        />
+                        <div className="flex justify-end">
+                            <button onClick={() => handleSaveCredentials('webhook')} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-500 shadow-lg">Atualizar Webhook</button>
+                        </div>
+                    </div>
+                 </div>
+
                  <button onClick={() => { updateSupabaseConfig(sysConfig.dbUrl, sysConfig.dbKey); alert("Infraestrutura Atualizada!"); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3"><Save size={18} /> Salvar Setup de Conexão</button>
 
                  {/* DANGER ZONE */}
@@ -970,6 +1075,30 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">WhatsApp</label>
                           <input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-800 dark:text-white outline-none" value={editingUser?.whatsapp || ''} onChange={e => setEditingUser({...editingUser, whatsapp: e.target.value})} placeholder="55..." />
                         </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-4 block">Permissões Específicas</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {Object.keys(AppView).filter(k => !['MASTER_CONFIG', 'ADMIN'].includes(k)).map((view) => (
+                                <label key={view} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 cursor-pointer hover:border-indigo-500 transition-colors">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={(editingUser?.permissions as any)?.[view] || false} 
+                                        onChange={e => setEditingUser({
+                                            ...editingUser, 
+                                            permissions: {
+                                                ...(editingUser?.permissions || {}),
+                                                [view]: e.target.checked
+                                            }
+                                        })}
+                                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                                    />
+                                    <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter">{view}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase mt-3">* Se nenhuma permissão for marcada, o sistema usará as travas padrão do plano.</p>
                       </div>
 
                       <button disabled={isLoading} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3">

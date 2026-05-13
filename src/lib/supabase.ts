@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 const DEFAULT_URL = 'https://uifexroywtnmelgxfbxc.supabase.co';
 const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpZmV4cm95d3RubWVsZ3hmYnhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MTM4MzQsImV4cCI6MjA4MzQ4OTgzNH0.y9RCTh84rzj7chgvj-wDqZLIafl43djujOpw5GD6PUI';
 
-const supabaseUrl = localStorage.getItem('finanai_db_url') || import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL;
-const supabaseAnonKey = localStorage.getItem('finanai_db_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_KEY;
+const supabaseUrl = (localStorage.getItem('finanai_db_url') || import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL).trim().replace(/\/$/, "");
+const supabaseAnonKey = (localStorage.getItem('finanai_db_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_KEY).trim();
 
 /**
  * Robust error formatter for Supabase/Postgrest errors.
@@ -26,10 +26,14 @@ export const formatSupabaseError = (e: any): string => {
 
   // Handle standard JS Error
   if (e instanceof Error) {
-    if (e.message === 'Failed to fetch') {
+    const msg = e.message;
+    if (msg === 'Failed to fetch') {
       return "Erro de Conexão: Não foi possível alcançar o banco de dados. Verifique sua URL do Supabase ou se o projeto está ativo.";
     }
-    return e.message;
+    if (msg.includes('Invalid path specified in request URL')) {
+      return "URL do Supabase inválida: Certifique-se de que a URL não possui barras extras ou está configurada corretamente no Admin Settings.";
+    }
+    return msg;
   }
 
   // Handle common API error patterns
