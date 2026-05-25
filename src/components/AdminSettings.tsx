@@ -57,6 +57,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     chat: true
   });
 
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   // Services Status State
   const [serviceStatus, setServiceStatus] = useState({
     gemini: { status: 'UNKNOWN' as 'ONLINE' | 'OFFLINE' | 'UNKNOWN', message: '', loading: false },
@@ -69,8 +71,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   });
 
   const [credentials, setCredentials] = useState({
-    gemini_key: loadSecureSetting('gemini_key') || process.env.GEMINI_API_KEY || '',
-    gemini_model: localStorage.getItem('gemini_model') || 'gemini-3-flash-preview',
+    gemini_key: loadSecureSetting('gemini_key') || '',
+    gemini_model: localStorage.getItem('gemini_model') || 'gemini-1.5-flash',
     openai_key: loadSecureSetting('openai_key') || '',
     openai_model: localStorage.getItem('openai_model') || 'gpt-4o',
     chat_provider: localStorage.getItem('chat_provider') || 'GEMINI',
@@ -91,8 +93,39 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   useEffect(() => {
     if (activeTab === 'SERVICES') {
       checkAllServices();
+      if (isMasterUnlocked) {
+        fetchServerConfig();
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, isMasterUnlocked]);
+
+  const fetchServerConfig = async () => {
+    try {
+      const res = await fetch(`/api/admin/config?pass=${encodeURIComponent('2298R@b')}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      console.log("[Admin] Server Config Loaded:", data);
+      
+      // Update local state with keys from server (they will be masked if already set)
+      const cloudCreds: any = {};
+      data.forEach((item: any) => {
+         const keyMap: Record<string, string> = {
+            'GEMINI_API_KEY': 'gemini_key',
+            'OPENAI_API_KEY': 'openai_key',
+            'STRIPE_SECRET_KEY': 'stripe_key',
+            'EVOLUTION_API_KEY': 'whatsapp_key',
+            'EVOLUTION_URL': 'whatsapp_url'
+         };
+         if (keyMap[item.key]) {
+            cloudCreds[keyMap[item.key]] = item.value;
+         }
+      });
+      
+      setCredentials(prev => ({ ...prev, ...cloudCreds }));
+    } catch (e) {
+      console.error("[Admin] Failed to fetch server config:", e);
+    }
+  };
 
   const checkAllServices = async () => {
     checkSupabase();
@@ -107,9 +140,6 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkSupabase = async () => {
     setServiceStatus(prev => ({ ...prev, supabase: { ...prev.supabase, loading: true } }));
     try {
-      const url = credentials.supabase_url || localStorage.getItem('finanai_db_url');
-      const key = credentials.supabase_key || localStorage.getItem('finanai_db_key');
-      
       const isConnected = await FinancialService.testConnection();
       setServiceStatus(prev => ({ 
         ...prev, 
@@ -123,15 +153,16 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkGemini = async () => {
     setServiceStatus(prev => ({ ...prev, gemini: { ...prev.gemini, loading: true } }));
     try {
-      const key = credentials.gemini_key || process.env.GEMINI_API_KEY || '';
-      if (!key) {
-        setServiceStatus(prev => ({ ...prev, gemini: { status: 'OFFLINE', message: 'API Key não configurada', loading: false } }));
-        return;
-      }
-      const result = await testGeminiConnection(key);
+      // Test via proxy directly to use server-side keys
+      const res = await fetch("/api/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: 'GEMINI' })
+      });
+      const data = await res.json();
       setServiceStatus(prev => ({ 
         ...prev, 
-        gemini: { status: result.success ? 'ONLINE' : 'OFFLINE', message: result.message || 'Pronto para uso', loading: false } 
+        gemini: { status: res.ok ? 'ONLINE' : 'OFFLINE', message: res.ok ? 'Pronto (Server-Side)' : (data.error || 'Erro'), loading: false } 
       }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, gemini: { status: 'OFFLINE', message: e.message, loading: false } }));
@@ -141,18 +172,18 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkOpenAI = async () => {
     setServiceStatus(prev => ({ ...prev, openai: { ...prev.openai, loading: true } }));
     try {
-      if (!credentials.openai_key) {
-        setServiceStatus(prev => ({ ...prev, openai: { status: 'OFFLINE', message: 'API Key não configurada', loading: false } }));
-        return;
-      }
-      // Simulação de teste para OpenAI (poderia ser uma chamada real para /models)
-      const res = await fetch('https://api.openai.com/v1/models', {
-        headers: { 'Authorization': `Bearer ${credentials.openai_key}` }
+      const response = await fetch("/api/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: 'OPENAI' })
       });
-      const isOk = res.ok;
+      
+      const isOk = response.ok;
+      const data = await response.json();
+      
       setServiceStatus(prev => ({ 
         ...prev, 
-        openai: { status: isOk ? 'ONLINE' : 'OFFLINE', message: isOk ? 'Pronto para uso' : 'Chave inválida', loading: false } 
+        openai: { status: isOk ? 'ONLINE' : 'OFFLINE', message: isOk ? 'Pronto (Server-Side)' : (data.error || 'Chave inválida'), loading: false } 
       }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, openai: { status: 'OFFLINE', message: e.message, loading: false } }));
@@ -162,18 +193,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkStripe = async () => {
     setServiceStatus(prev => ({ ...prev, stripe: { ...prev.stripe, loading: true } }));
     try {
-      const key = credentials.stripe_key || process.env.STRIPE_SECRET_KEY;
-      if (!key) {
-        setServiceStatus(prev => ({ ...prev, stripe: { status: 'OFFLINE', message: 'Chave não configurada', loading: false } }));
-        return;
-      }
-      // Simulação de teste de API Stripe
-      setTimeout(() => {
-        setServiceStatus(prev => ({ 
-          ...prev, 
-          stripe: { status: 'ONLINE', message: 'Gateway Stripe Operacional', loading: false } 
-        }));
-      }, 1000);
+      const res = await fetch("/api/stripe/balance");
+      const isOk = res.ok;
+      setServiceStatus(prev => ({ 
+        ...prev, 
+        stripe: { status: isOk ? 'ONLINE' : 'OFFLINE', message: isOk ? 'Gateway Stripe Operacional' : 'Falha na autenticação via server', loading: false } 
+      }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, stripe: { status: 'OFFLINE', message: e.message, loading: false } }));
     }
@@ -220,11 +245,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkSMTP = async () => {
     setServiceStatus(prev => ({ ...prev, smtp: { ...prev.smtp, loading: true } }));
     try {
-      // In the browser, we can't check process.env directly for non-VITE_ variables.
-      // We'll assume it's configured if the test button is visible or check a flag from the backend if needed.
+      const res = await fetch("/api/health");
       setServiceStatus(prev => ({ 
         ...prev, 
-        smtp: { status: 'ONLINE', message: 'Servidor SMTP Robnet Configurado', loading: false } 
+        smtp: { status: res.ok ? 'ONLINE' : 'OFFLINE', message: 'Servidor SMTP Robnet Ativo', loading: false } 
       }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, smtp: { status: 'OFFLINE', message: e.message, loading: false } }));
@@ -284,36 +308,114 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleSaveCredentials = (service: string) => {
-    // Save specific service credentials
-    Object.entries(credentials).forEach(([key, value]) => {
-      // Only save keys related to the current service to avoid overwriting others with stale state
-      if (key.startsWith(service) && value !== undefined && value !== null) {
-        if (key.includes('key') || key.includes('pass') || key.includes('url') || key.includes('file')) {
-          saveSecureSetting(key, String(value));
-        } else {
-          localStorage.setItem(key, String(value));
-        }
-      }
-    });
+  const validateField = (key: string, value: string): string => {
+    if (!value) return ""; // Permitir limpar para desativar serviço
+    if (value.includes('...')) return ""; // Ignorar campos mascarados carregados do banco
     
-    // Special case for supabase update
-    if (service === 'supabase') {
-      updateSupabaseConfig(credentials.supabase_url, credentials.supabase_key);
+    if (key === 'openai_key') {
+      if (!value.startsWith('sk-')) return "Deve começar com 'sk-'";
+      if (value.length < 20) return "Chave muito curta";
+    }
+    
+    if (key.includes('stripe_key')) {
+      if (!value.startsWith('sk_test_') && !value.startsWith('sk_live_')) {
+        return "Deve começar com 'sk_test_' ou 'sk_live_'";
+      }
+      if (value.length < 20) return "Chave muito curta";
+    }
+    
+    if (key === 'gemini_key') {
+      if (value.length < 30) return "Chave Gemini parece inválida (muito curta)";
     }
 
-    // Trigger re-check for the specific service
-    switch(service) {
-      case 'gemini': checkGemini(); break;
-      case 'openai': checkOpenAI(); break;
-      case 'supabase': checkSupabase(); break;
-      case 'stripe': checkStripe(); break;
-      case 'nfse': checkNfse(); break;
-      case 'whatsapp': checkWhatsApp(); break;
-      case 'webhook': alert("Webhook configurado com sucesso para automações N8N."); break;
-      default: checkAllServices();
+    return "";
+  };
+
+  const handleSaveCredentials = async (service: string) => {
+    // Validação
+    const errors: Record<string, string> = {};
+    let hasError = false;
+
+    Object.entries(credentials).forEach(([key, value]) => {
+      if (key.startsWith(service) && (key.includes('key') || key.includes('pass'))) {
+          const error = validateField(key, String(value));
+          if (error) {
+              errors[key] = error;
+              hasError = true;
+          }
+      }
+    });
+
+    setFieldErrors(prev => {
+        const newErrors = { ...prev };
+        // Limpa erros anteriores do serviço
+        Object.keys(newErrors).forEach(k => {
+            if (k.startsWith(service)) delete newErrors[k];
+        });
+        return { ...newErrors, ...errors };
+    });
+
+    if (hasError) {
+        alert("Erro de validação detectado. Verifique os campos em vermelho.");
+        return;
+    }
+
+    setIsLoading(true);
+    try {
+        // 1. Save locally for immediate feedback (if not masked)
+        Object.entries(credentials).forEach(([key, value]) => {
+            if (key.startsWith(service) && value !== undefined && value !== null && !String(value).includes('...')) {
+                if (key.includes('key') || key.includes('pass') || key.includes('url') || key.includes('file')) {
+                    saveSecureSetting(key, String(value));
+                } else {
+                    localStorage.setItem(key, String(value));
+                }
+            }
+        });
+
+        // 2. Save to Database (Cloud Persistence)
+        const cloudConfigs: any[] = [];
+        const keyMap: Record<string, string> = {
+            'gemini_key': 'GEMINI_API_KEY',
+            'gemini_model': 'GEMINI_MODEL',
+            'openai_key': 'OPENAI_API_KEY',
+            'openai_model': 'OPENAI_MODEL',
+            'stripe_key': 'STRIPE_SECRET_KEY',
+            'whatsapp_url': 'EVOLUTION_URL',
+            'whatsapp_key': 'EVOLUTION_API_KEY'
+        };
+
+        Object.entries(credentials).forEach(([key, value]) => {
+            if (key.startsWith(service) && keyMap[key] && value && !String(value).includes('...')) {
+                cloudConfigs.push({ key: keyMap[key], value: String(value) });
+            }
+        });
+
+        if (cloudConfigs.length > 0) {
+            const res = await fetch("/api/admin/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pass: '2298R@b', configs: cloudConfigs })
+            });
+            if (!res.ok) throw new Error("Falha ao persistir no banco de dados");
+        }
+
+        // Special case for supabase update
+        if (service === 'supabase') {
+            updateSupabaseConfig(credentials.supabase_url, credentials.supabase_key);
+        }
+
+        alert(`Configurações de ${service.toUpperCase()} salvas localmente e sincronizadas com a nuvem.`);
+        
+        // Trigger re-check
+        checkAllServices();
+    } catch (e: any) {
+        alert("Erro ao salvar: " + e.message);
+    } finally {
+        setIsLoading(false);
     }
   };
+
 
   const fetchAdminData = async () => {
     setIsLoading(true);
@@ -637,11 +739,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">API Key (Criptografada)</label>
                                     <input 
                                         type="password" 
-                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
+                                        className={`w-full bg-white dark:bg-slate-900 border ${fieldErrors.gemini_key ? 'border-rose-500 animate-pulse' : 'border-slate-200 dark:border-slate-700'} rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500`} 
                                         placeholder="••••••••••••••••"
                                         value={credentials.gemini_key}
                                         onChange={e => setCredentials({...credentials, gemini_key: e.target.value})}
                                     />
+                                    {fieldErrors.gemini_key && <p className="text-[9px] text-rose-500 font-bold mt-1 uppercase tracking-tight">{fieldErrors.gemini_key}</p>}
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleSaveCredentials('gemini')} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-lg">Salvar</button>
@@ -685,11 +788,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">API Key (Criptografada)</label>
                                     <input 
                                         type="password" 
-                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-rose-500" 
+                                        className={`w-full bg-white dark:bg-slate-900 border ${fieldErrors.openai_key ? 'border-rose-500 animate-pulse' : 'border-slate-200 dark:border-slate-700'} rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-rose-500`} 
                                         placeholder="••••••••••••••••"
                                         value={credentials.openai_key}
                                         onChange={e => setCredentials({...credentials, openai_key: e.target.value})}
                                     />
+                                    {fieldErrors.openai_key && <p className="text-[9px] text-rose-500 font-bold mt-1 uppercase tracking-tight">{fieldErrors.openai_key}</p>}
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleSaveCredentials('openai')} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-lg">Salvar</button>
@@ -734,7 +838,8 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 </div>
                             </div>
                             <div className="space-y-3">
-                                <input type="password" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Secret Key" value={credentials.stripe_key} onChange={e => setCredentials({...credentials, stripe_key: e.target.value})} />
+                                <input type="password" className={`w-full bg-white dark:bg-slate-900 border ${fieldErrors.stripe_key ? 'border-rose-500 animate-pulse' : 'border-slate-200 dark:border-slate-700'} rounded-xl px-4 py-2 text-[10px] font-bold`} placeholder="Secret Key" value={credentials.stripe_key} onChange={e => setCredentials({...credentials, stripe_key: e.target.value})} />
+                                {fieldErrors.stripe_key && <p className="text-[8px] text-rose-500 font-black mt-1 uppercase">{fieldErrors.stripe_key}</p>}
                                 <div className="flex gap-2">
                                     <button onClick={() => handleSaveCredentials('stripe')} className="flex-1 py-2 bg-blue-600 text-white rounded-xl font-black uppercase text-[8px] tracking-widest">Salvar</button>
                                     <button onClick={checkStripe} className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl"><RefreshCw size={12} className={serviceStatus.stripe.loading ? 'animate-spin' : ''} /></button>

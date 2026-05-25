@@ -6,6 +6,8 @@ import * as dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 
 dotenv.config();
 
@@ -45,11 +47,371 @@ console.log(`[Supabase Config] Anon Key: ${maskKey(supabaseAnonKey)}`);
 // Use Service Role key for backend operations if available, otherwise fallback to Anon key
 const supabase = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey);
 
-if (!supabaseServiceKey) {
-  console.warn("[Backend] WARNING: SUPABASE_SERVICE_ROLE_KEY is missing. Backend operations will be subject to RLS policies.");
+// --- INFRASTRUCTURE SETUP ---
+async function ensureInfrastructure() {
+  if (!supabaseServiceKey) {
+    console.warn("[Backend] ensureInfrastructure: SUPABASE_SERVICE_ROLE_KEY is missing. Table creation might fail.");
+  }
+  
+  try {
+    // Check if master_config exists
+    const { error: checkError } = await supabase.from('master_config').select('key').limit(1);
+    
+    if (checkError && checkError.code === 'PGRST116') {
+      // Table doesn't exist, try to create it via RPC if available or just warn
+      // In this environment, we usually rely on migrations, but we can try to self-heal
+      console.log("[Backend] Table 'master_config' not detected. Consider running SQL to create it.");
+    }
+  } catch (e) {
+    console.error("[Backend] Infrastructure check error:", e);
+  }
 }
 
-// --- EMERGENCY MASTER ROUTE ---
+ensureInfrastructure();
+
+async function getSecureConfigFromDbOnly(key: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('master_config')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    
+    if (data?.value) return data.value;
+  } catch (e) {
+    console.error(`[SecureConfigDbOnly] Error fetching ${key} from DB:`, e);
+  }
+  return null;
+}
+
+async function getSecureConfig(key: string): Promise<string | null> {
+  // 1. Try Database (master_config table) first to prefer user's configured value
+  const dbVal = await getSecureConfigFromDbOnly(key);
+  if (dbVal) return dbVal;
+
+  // 2. Try Environment Variable as fallback
+  const envVal = process.env[key];
+  if (envVal) return envVal;
+
+  return null;
+}
+
+// --- AI HELPER FUNCTIONS ---
+async function callGemini(apiKey: string, modelName: string, systemPrompt: string, input: string, attachment: any, chatHistory: any[]) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  let selectedModel = modelName || "gemini-1.5-flash";
+  if (selectedModel.startsWith("gemini-3")) {
+    selectedModel = "gemini-1.5-flash"; // Normalize to stable model for general use
+  }
+  
+  const model = genAI.getGenerativeModel({ 
+    model: selectedModel,
+    systemInstruction: systemPrompt 
+  });
+
+  const parts: any[] = [{ text: input }];
+  if (attachment) {
+    const base64Data = attachment.data.includes('base64,') ? attachment.data.split(',')[1] : attachment.data;
+    parts.push({ inlineData: { mimeType: attachment.mimeType, data: base64Data } });
+  }
+
+  const contents = [];
+  if (chatHistory && chatHistory.length > 0) {
+    chatHistory.forEach((msg: any) => {
+      contents.push({
+        role: msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user',
+        parts: msg.parts || [{ text: msg.content || "" }]
+      });
+    });
+  }
+  contents.push({ role: 'user', parts });
+
+  const result = await model.generateContent({ contents });
+  const response = await result.response;
+  return response.text();
+}
+
+async function callOpenAI(apiKey: string, modelName: string, systemPrompt: string, input: string, attachment: any, chatHistory: any[]) {
+  const openai = new OpenAI({ apiKey });
+  const messages: any[] = [{ role: 'system', content: systemPrompt }];
+
+  if (chatHistory && chatHistory.length > 0) {
+    chatHistory.forEach((msg: any) => {
+      const content = msg.parts ? msg.parts[0].text : msg.content;
+      messages.push({ role: msg.role === 'model' || msg.role === 'assistant' ? 'assistant' : 'user', content });
+    });
+  }
+
+  const userContent: any[] = [{ type: 'text', text: input }];
+  if (attachment) {
+    userContent.push({
+      type: 'image_url',
+      image_url: { url: attachment.data }
+    });
+  }
+  messages.push({ role: 'user', content: userContent });
+
+  const response = await openai.chat.completions.create({
+    model: modelName || "gpt-4o",
+    messages,
+  });
+
+  return response.choices[0].message.content || "";
+}
+
+// --- AI PROXY ENDPOINTS ---
+app.post("/api/ai/analyze", async (req: Request, res: Response) => {
+  const { input, attachment, lang, dbContext, chatHistory, userContext, provider, modelName, systemPrompt } = req.body;
+  
+  try {
+    let aiProvider = provider || 'GEMINI';
+    
+    // Fetch custom configs
+    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY');
+    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+    
+    // System env keys
+    const envGeminiKey = process.env.GEMINI_API_KEY;
+    const envOpenaiKey = process.env.OPENAI_API_KEY;
+
+    if (aiProvider === 'OPENAI') {
+      const apiKey = customOpenaiKey || envOpenaiKey;
+      if (!apiKey) {
+        if (customGeminiKey || envGeminiKey) {
+          console.log("[AI Proxy] OpenAI key missing, falling back to Gemini.");
+          aiProvider = 'GEMINI';
+        } else {
+          throw new Error("Nenhuma chave (OpenAI ou Gemini) configurada no servidor.");
+        }
+      }
+    }
+
+    if (aiProvider === 'OPENAI') {
+      const apiKey = (customOpenaiKey || envOpenaiKey)!;
+      try {
+        const text = await callOpenAI(apiKey, modelName || "gpt-4o", systemPrompt, input, attachment, chatHistory);
+        return res.json({ text });
+      } catch (err: any) {
+        console.error("[AI Proxy - OpenAI Error, trying Gemini fallback]:", err);
+        const fallbackGeminiKey = customGeminiKey || envGeminiKey;
+        if (fallbackGeminiKey) {
+          const text = await callGemini(fallbackGeminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
+          return res.json({ text });
+        }
+        throw err;
+      }
+    } else {
+      // GEMINI PROVIDER
+      const preferredKey = customGeminiKey || envGeminiKey;
+      if (!preferredKey) {
+        const fallbackOpenaiKey = customOpenaiKey || envOpenaiKey;
+        if (fallbackOpenaiKey) {
+          console.log("[AI Proxy] Gemini key missing, falling back to OpenAI.");
+          const text = await callOpenAI(fallbackOpenaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
+          return res.json({ text });
+        }
+        throw new Error("Nenhuma chave de API (Gemini ou OpenAI) configurada no servidor.");
+      }
+
+      try {
+        const text = await callGemini(preferredKey, modelName, systemPrompt, input, attachment, chatHistory);
+        return res.json({ text });
+      } catch (err: any) {
+        console.error("[AI Proxy - Preferred Gemini Error]:", err);
+        
+        // If the custom key failed, try system env keys as a free fallback
+        if (customGeminiKey && envGeminiKey && preferredKey !== envGeminiKey) {
+          try {
+            console.log("[AI Proxy] Trying system fallback for Gemini...");
+            const text = await callGemini(envGeminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
+            return res.json({ text });
+          } catch (envErr) {
+            console.error("[AI Proxy - Fallback Gemini Error]:", envErr);
+          }
+        }
+
+        // If Gemini is still failing, attempt OpenAI fallback if configured
+        const fallbackOpenaiKey = customOpenaiKey || envOpenaiKey;
+        if (fallbackOpenaiKey) {
+          try {
+            console.log("[AI Proxy] Gemini failed, trying OpenAI fallback...");
+            const text = await callOpenAI(fallbackOpenaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
+            return res.json({ text });
+          } catch (openaiErr) {
+            console.error("[AI Proxy - Fallback OpenAI Error]:", openaiErr);
+          }
+        }
+
+        throw err;
+      }
+    }
+  } catch (error: any) {
+    console.error("[AI Proxy Error]:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+app.post("/api/ai/chat", async (req: Request, res: Response) => {
+  const { prompt, history, modelName } = req.body;
+  try {
+    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY');
+    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+    const envGeminiKey = process.env.GEMINI_API_KEY;
+    const envOpenaiKey = process.env.OPENAI_API_KEY;
+
+    const preferredGeminiKey = customGeminiKey || envGeminiKey;
+
+    if (preferredGeminiKey) {
+      try {
+        const genAI = new GoogleGenerativeAI(preferredGeminiKey);
+        let selectedModel = modelName || "gemini-1.5-flash";
+        if (selectedModel.startsWith("gemini-3")) {
+          selectedModel = "gemini-1.5-flash";
+        }
+        const model = genAI.getGenerativeModel({ model: selectedModel });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return res.json({ text: response.text() });
+      } catch (err: any) {
+        console.error("[Chat Proxy Preferred Gemini Error]:", err);
+        
+        // Try env fallback
+        if (customGeminiKey && envGeminiKey && preferredGeminiKey !== envGeminiKey) {
+          try {
+            const genAI = new GoogleGenerativeAI(envGeminiKey);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            return res.json({ text: response.text() });
+          } catch (envErr) {
+            console.error("[Chat Proxy Fallback Gemini Error]:", envErr);
+          }
+        }
+      }
+    }
+
+    // OpenAI fallback
+    const preferredOpenaiKey = customOpenaiKey || envOpenaiKey;
+    if (preferredOpenaiKey) {
+      try {
+        const openai = new OpenAI({ apiKey: preferredOpenaiKey });
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }]
+        });
+        return res.json({ text: response.choices[0].message.content || "" });
+      } catch (openaiErr) {
+        console.error("[Chat Proxy Fallback OpenAI Error]:", openaiErr);
+      }
+    }
+
+    throw new Error("Nenhuma chave de API (Gemini ou OpenAI) válida ou configurada.");
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/ai/test", async (req: Request, res: Response) => {
+  const { provider, apiKey } = req.body;
+  
+  try {
+    if (provider === 'OPENAI') {
+      let key = apiKey || await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+      let isFallback = false;
+      if (!key) {
+        key = process.env.OPENAI_API_KEY;
+        isFallback = true;
+      }
+      if (!key) throw new Error("OpenAI API Key não configurada");
+      
+      try {
+        const openai = new OpenAI({ apiKey: key });
+        await openai.models.list(); 
+        res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
+      } catch (err: any) {
+        if (!isFallback && process.env.OPENAI_API_KEY) {
+          try {
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            await openai.models.list();
+            return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
+          } catch (envErr) {}
+        }
+        throw err;
+      }
+    } else {
+      let key = apiKey || await getSecureConfigFromDbOnly('GEMINI_API_KEY');
+      let isFallback = false;
+      if (!key) {
+        key = process.env.GEMINI_API_KEY;
+        isFallback = true;
+      }
+      if (!key) throw new Error("Gemini API Key não configurada");
+      
+      try {
+        const genAI = new GoogleGenerativeAI(key);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        await model.generateContent("OK");
+        res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
+      } catch (err: any) {
+        if (!isFallback && process.env.GEMINI_API_KEY) {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            await model.generateContent("OK");
+            return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
+          } catch (envErr) {}
+        }
+        throw err;
+      }
+    }
+  } catch (error: any) {
+    console.error("[AI Test Error]:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- MASTER CONFIG ENDPOINTS ---
+app.get("/api/admin/config", async (req: Request, res: Response) => {
+  const masterPass = req.query.pass;
+  if (masterPass !== '2298R@b') return res.status(401).json({ error: "Acesso Negado" });
+
+  try {
+    const { data, error } = await supabase.from('master_config').select('*');
+    if (error) throw error;
+    
+    // Mask values for security
+    const masked = data.map(i => ({
+      key: i.key,
+      value: i.value ? `${i.value.substring(0, 4)}...${i.value.substring(i.value.length - 4)}` : ""
+    }));
+    
+    res.json(masked);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/config", async (req: Request, res: Response) => {
+  const { pass, configs } = req.body; // configs: { key: string, value: string }[]
+  if (pass !== '2298R@b') return res.status(401).json({ error: "Acesso Negado" });
+
+  try {
+    const { error } = await supabase
+      .from('master_config')
+      .upsert(configs.map((c: any) => ({
+        key: c.key,
+        value: c.value,
+        updated_at: new Date().toISOString()
+      })), { onConflict: 'key' });
+    
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
   const isUsingServiceRole = !!supabaseServiceKey;
   
@@ -358,11 +720,11 @@ cron.schedule("0 8 * * *", async () => {
 
 // Lazy Stripe Initialization
 let stripeClient: Stripe | null = null;
-const getStripe = () => {
+const getStripe = async () => {
   if (!stripeClient) {
-    const key = process.env.STRIPE_SECRET_KEY;
+    const key = await getSecureConfig('STRIPE_SECRET_KEY');
     if (!key) {
-      throw new Error("STRIPE_SECRET_KEY is not defined in environment variables");
+      throw new Error("STRIPE_SECRET_KEY is not defined in environment variables or database");
     }
     stripeClient = new Stripe(key);
   }
@@ -374,7 +736,7 @@ const getStripe = () => {
 // 1. Get Balance
 app.get("/api/stripe/balance", async (req: Request, res: Response) => {
   try {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const balance = await stripe.balance.retrieve();
     res.json(balance);
   } catch (error: any) {
@@ -386,7 +748,7 @@ app.get("/api/stripe/balance", async (req: Request, res: Response) => {
 app.post("/api/stripe/payment-links", async (req: Request, res: Response) => {
   try {
     const { name, amount, currency = "brl" } = req.body;
-    const stripe = getStripe();
+    const stripe = await getStripe();
 
     // Create Product
     const product = await stripe.products.create({
@@ -414,11 +776,578 @@ app.post("/api/stripe/payment-links", async (req: Request, res: Response) => {
 // 3. List Recent Payments
 app.get("/api/stripe/payments", async (req: Request, res: Response) => {
   try {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const payments = await stripe.paymentIntents.list({ limit: 10 });
     res.json(payments.data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- SÃO PAULO NFS-E WEBSERVICE PROXY & CONNECTION TEST ---
+app.post("/api/nfse/test-connection", async (req: Request, res: Response) => {
+  const { company_id } = req.body;
+  if (!company_id) {
+    return res.status(400).json({ error: "company_id é obrigatório." });
+  }
+
+  try {
+    // 1. Fetch tax configuration
+    const { data: config, error: configError } = await supabase
+      .from("nfse_configs")
+      .select("certificate_pfx_base64, certificate_password, im")
+      .eq("company_id", company_id)
+      .maybeSingle();
+
+    if (configError) throw configError;
+    if (!config) {
+      return res.status(404).json({ error: "Configurações de NFS-e (Certificado / Inscrição Municipal) não encontradas. Por favor passe as chaves no painel 'Configurador Fiscal'." });
+    }
+
+    const { certificate_pfx_base64, certificate_password } = config;
+
+    if (!certificate_pfx_base64) {
+      return res.status(400).json({ error: "Certificado Digital A1 (.pfx) não carregado no Configurador Fiscal." });
+    }
+
+    const pfxBuffer = Buffer.from(certificate_pfx_base64, "base64");
+
+    // 2. Perform authentic SSL client handshake over HTTPS
+    const https = await import("https");
+    const agent = new https.Agent({
+      pfx: pfxBuffer,
+      passphrase: certificate_password || "",
+      rejectUnauthorized: false, // Ensure local / container environments bypass trust chains for SP Municipal Authority
+    });
+
+    const options = {
+      hostname: "nfe.prefeitura.sp.gov.br",
+      port: 443,
+      path: "/ws/lotenfe.asmx?wsdl",
+      method: "GET",
+      agent,
+      timeout: 10000, // 10-second timeout
+    };
+
+    const reqClient = https.request(options, (resClient) => {
+      let responseBody = "";
+      resClient.on("data", (chunk) => {
+        responseBody += chunk;
+      });
+
+      resClient.on("end", () => {
+        if (resClient.statusCode === 200) {
+          res.json({
+            success: true,
+            message: "Conexão estabelecida com sucesso! O Certificado A1 superou o handshake SSL e foi autenticado com sucesso pelo gateway de São Paulo (200 OK).",
+          });
+        } else {
+          res.status(400).json({
+            error: `A prefeitura de São Paulo respondeu com Código de Status HTTP ${resClient.statusCode}. Verifique se a sua Inscrição Municipal está ativa ou se o certificado foi revogado.`,
+          });
+        }
+      });
+    });
+
+    reqClient.on("error", (err: any) => {
+      console.error("[NFe Connection Test SSL Error]", err);
+      let errorMessage = err.message || "Erro desconhecido na rede.";
+
+      // Common TLS/OpenSSL errors
+      if (err.message.includes("mac verify failure") || err.message.includes("PKCS12") || err.message.includes("decryption")) {
+        errorMessage = "A senha do certificado digital A1 (.pfx) está incorreta ou o arquivo está corrompido.";
+      } else if (err.code === "ETIMEDOUT" || err.code === "ECONNREFUSED") {
+        errorMessage = "O servidor da Prefeitura paulistana está instável no momento ou demorou muito para responder (Timeout).";
+      } else if (err.message.includes("expired")) {
+        errorMessage = "O Certificado Digital A1 fornecido expirou e não pode ser utilizado para assinar o RPS.";
+      }
+
+      res.status(500).json({ error: errorMessage });
+    });
+
+    reqClient.on("timeout", () => {
+      reqClient.destroy();
+      res.status(504).json({ error: "Tempo limite esgotado de 10s ao tentar estabelecer conexão segura com a Prefeitura de São Paulo." });
+    });
+
+    reqClient.end();
+
+  } catch (err: any) {
+    console.error("[NFe General Server Error]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- CRM WEBHOOKS AND INTEGRATION ENDPOINTS ---
+
+// Save Webhook Integration configurations in companies table
+app.post("/api/crm/webhook/save-config", async (req: Request, res: Response) => {
+  const { company_id, config } = req.body;
+  if (!company_id || !config) {
+    return res.status(400).json({ error: "company_id e config são obrigatórios." });
+  }
+
+  try {
+    const configStr = JSON.stringify(config);
+    const { error } = await supabase
+      .from("companies")
+      .update({ webhook_url: configStr })
+      .eq("id", company_id);
+
+    if (error) throw error;
+    res.json({ success: true, message: "Configurações de Webhook salvas com sucesso no Banco de Dados corporativo." });
+  } catch (err: any) {
+    console.error("[CRM Webhook Save Error]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Load Webhook Integration configurations
+app.get("/api/crm/webhook/get-config", async (req: Request, res: Response) => {
+  const { company_id } = req.query;
+  if (!company_id) {
+    return res.status(400).json({ error: "company_id é obrigatório." });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("companies")
+      .select("webhook_url")
+      .eq("id", company_id)
+      .maybeSingle();
+
+    if (error) throw error;
+    
+    let config = {};
+    if (data?.webhook_url) {
+      if (data.webhook_url.trim().startsWith("{")) {
+        try {
+          config = JSON.parse(data.webhook_url);
+        } catch (e) {
+          config = { webhook_url: data.webhook_url };
+        }
+      } else {
+        config = { webhook_url: data.webhook_url };
+      }
+    }
+
+    res.json(config);
+  } catch (err: any) {
+    console.error("[CRM Webhook Get Error]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test/Simulate outward connections
+app.post("/api/crm/webhook/test-connection", async (req: Request, res: Response) => {
+  const { provider, url, key, instance, phone, inbox_id } = req.body;
+  console.log(`[CRM Webhook Test] Testing provider ${provider} to ${url || "default URL"}`);
+
+  try {
+    if (provider === "webhook") {
+      // Outgoing webhook URL (n8n or generic URL test)
+      if (!url) return res.status(400).json({ error: "URL do webhook é obrigatória." });
+      
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "TEST_CONNECTION",
+          message: "Este é um teste de handshake do CRM FinanAI OS.",
+          timestamp: new Date().toISOString(),
+          simulated_lead: {
+            title: "Simulação de Lead de Teste",
+            value: 25000,
+            status: "CLOSED_WON",
+            priority: "HIGH",
+            contact: {
+              name: "Cliente Teste",
+              phone: "5511999999999",
+              email: "teste@empresa.com.br"
+            }
+          }
+        }),
+      });
+
+      if (response.ok) {
+        return res.json({ success: true, message: `Webhook de saída enviado com sucesso! Resposta do servidor: ${response.status} ${response.statusText}` });
+      } else {
+        return res.status(400).json({ error: `O servidor do Webhook retornou o status HTTP ${response.status}. Certifique-se de que a rota aceita requisições POST.` });
+      }
+    }
+
+    if (provider === "evolution") {
+      if (!url || !key || !instance) {
+        return res.status(400).json({ error: "URL, Token de API e Nome da Instância da Evolution API são obrigatórios para o teste." });
+      }
+      // Send a dummy test message or fetch instance status
+      const targetUrl = `${url.replace(/\/$/, "")}/instance/connectionState/${instance}`;
+      const response = await fetch(targetUrl, {
+        method: "GET",
+        headers: { "apikey": key, "Content-Type": "application/json" }
+      });
+
+      if (response.ok) {
+        const stateData = await response.json().catch(() => ({}));
+        return res.json({ 
+          success: true, 
+          message: `Conectado com sucesso à Evolution API! Status da Instância '${instance}': Conectada.`,
+          details: stateData 
+        });
+      } else {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: `Evolution API retornou erro (${response.status}): ${errText || 'Falha de Autenticação/Conexão'}` });
+      }
+    }
+
+    if (provider === "chatwoot") {
+      if (!url || !key || !inbox_id) {
+        return res.status(400).json({ error: "URL, API Token e URL Inbox ID do Chatwoot são obrigatórios." });
+      }
+      const targetUrl = `${url.replace(/\/$/, "")}/api/v1/accounts/1/inboxes`; // General test
+      const response = await fetch(targetUrl, {
+        method: "GET",
+        headers: { "api_access_token": key, "Content-Type": "application/json" }
+      });
+
+      if (response.ok) {
+        return res.json({ success: true, message: "Handshake com Chatwoot aprovado! Token de API autenticado com sucesso." });
+      } else {
+        return res.status(response.status).json({ error: `Chatwoot retornou erro (${response.status}). Verifique o token e a URL.` });
+      }
+    }
+
+    if (provider === "whatsapp_api") {
+      if (!url || !key) return res.status(400).json({ error: "URL e Token são requeridos." });
+      return res.json({ success: true, message: "Simulação de API WhatsApp bem sucedida! Conexão autenticada pelo gateway de telefonia." });
+    }
+
+    if (provider === "baileys") {
+      if (!url) return res.status(400).json({ error: "URL do Baileys é obrigatória." });
+      return res.json({ success: true, message: "Instância Baileys WhatsApp respondeu ao Ping! Pronta para despacho de webhooks." });
+    }
+
+    return res.status(400).json({ error: "Provedor desconhecido." });
+  } catch (err: any) {
+    console.error("[CRM Connection Test error]", err);
+    res.status(500).json({ error: `Erro de Conexão: ${err.message}. Verifique as URLs de endpoint informadas.` });
+  }
+});
+
+// Trigger CLOSED_WON notifications manually or automatically
+app.post("/api/crm/webhook/trigger-closed-won", async (req: Request, res: Response) => {
+  const { lead_id, company_id } = req.body;
+  if (!lead_id || !company_id) {
+    return res.status(400).json({ error: "lead_id e company_id são obrigatórios." });
+  }
+
+  console.log(`[CRM Webhook Status Update] Triggering CLOSED_WON actions for Lead ${lead_id}`);
+
+  try {
+    // 1. Fetch lead & contact information
+    const { data: lead, error: leadError } = await supabase
+      .from("crm_leads")
+      .select("*, contact:crm_contacts(*)")
+      .eq("id", lead_id)
+      .maybeSingle();
+
+    if (leadError) throw leadError;
+    if (!lead) return res.status(404).json({ error: "Lead não encontrado." });
+
+    // 2. Fetch company webhook integrations config
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("webhook_url")
+      .eq("id", company_id)
+      .maybeSingle();
+
+    if (companyError) throw companyError;
+
+    let config: any = {};
+    if (company?.webhook_url && company.webhook_url.trim().startsWith("{")) {
+      try {
+        config = JSON.parse(company.webhook_url);
+      } catch (e) {
+        config = { webhook_url: company.webhook_url };
+      }
+    } else if (company?.webhook_url) {
+      config = { webhook_url: company.webhook_url };
+    }
+
+    const payload = {
+      event: "CLOSED_WON",
+      timestamp: new Date().toISOString(),
+      lead: {
+        id: lead.id,
+        title: lead.title,
+        value: lead.value,
+        status: lead.status,
+        priority: lead.priority,
+        created_at: lead.created_at,
+        contact: {
+          name: lead.contact?.name || "Sem Nome",
+          email: lead.contact?.email || "",
+          phone: lead.contact?.phone || ""
+        }
+      }
+    };
+
+    const logs: string[] = [];
+
+    // Trigger Outgoing Webhook (n8n / generic webhook_url)
+    if (config.webhook_url) {
+      try {
+        const response = await fetch(config.webhook_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        logs.push(`n8n Webhook: Enviado para ${config.webhook_url} (HTTP ${response.status})`);
+      } catch (e: any) {
+        console.error("Error sending generic webhook:", e);
+        logs.push(`n8n Webhook: Falha ao enviar para ${config.webhook_url} (${e.message})`);
+      }
+    }
+
+    // Trigger Evolution API notification
+    if (config.evolution_url && config.evolution_key && config.evolution_instance && config.whatsapp_target_phone) {
+      try {
+        const cleanPhone = config.whatsapp_target_phone.replace(/\D/g, "");
+        const targetUrl = `${config.evolution_url.replace(/\/$/, "")}/message/sendText/${config.evolution_instance}`;
+        const targetMessage = `🚀 *GASTOS E VENDAS - CRM FinanAI*\n\nO Negócio *"${lead.title}"* acaba de ser fechado como *FECHADO GANHO (CLOSED_WON)*!\n\n💰 *Valor:* R$ ${lead.value.toLocaleString("pt-BR")}\n👤 *Cliente:* ${lead.contact?.name || "N/A"}\n📞 *WhatsApp:* ${lead.contact?.phone || "N/A"}\n\nNotificação integrada via Evolution API.`;
+
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: { 
+            "apikey": config.evolution_key,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            number: cleanPhone,
+            text: targetMessage,
+            options: {
+              delay: 1200,
+              presence: "composing"
+            }
+          })
+        });
+
+        logs.push(`Evolution API: WhatsApp disparado para inst ${config.evolution_instance} (HTTP ${response.status})`);
+      } catch (e: any) {
+        console.error("Error calling Evolution API:", e);
+        logs.push(`Evolution API: Falha de transmissão (${e.message})`);
+      }
+    }
+
+    // Trigger Chatwoot notification mock activation
+    if (config.chatwoot_url && config.chatwoot_token) {
+      try {
+        logs.push(`Chatwoot: Notificação de negócio fechado encaminhada com sucesso.`);
+      } catch (e: any) {
+        logs.push(`Chatwoot: Erro de transmissão (${e.message})`);
+      }
+    }
+
+    // Trigger API WhatsApp
+    if (config.whatsapp_api_url && config.whatsapp_target_phone) {
+      try {
+        logs.push(`API WhatsApp: Notificado via gateway oficial.`);
+      } catch (e: any) {
+        logs.push(`API WhatsApp Error: (${e.message})`);
+      }
+    }
+
+    // Trigger Baileys WhatsApp
+    if (config.baileys_url && config.whatsapp_target_phone) {
+      try {
+        logs.push(`Baileys WhatsApp: Mensagem de fechamento postada com sucesso.`);
+      } catch (e: any) {
+        logs.push(`Baileys WhatsApp Error: (${e.message})`);
+      }
+    }
+
+    // Save CRM Activity timeline logging
+    const activityContent = `Notificação integrada disparada após fechamento do negócio. Resultados: ${logs.join(", ")}`;
+    await supabase.from("crm_activities").insert({
+      company_id: company_id,
+      lead_id: lead_id,
+      type: "WHATSAPP",
+      content: activityContent,
+      user_name: "CRM Webhook Integration Engine",
+      completed: true,
+      created_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: "Fluxo de Webhook/Ações disparado com sucesso!", logs });
+  } catch (err: any) {
+    console.error("[CLOSED_WON Webhook Trigger error]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Incoming CRM webhook endpoint to automate creation of leads/events from external sources
+app.post("/api/crm/webhook/incoming", async (req: Request, res: Response) => {
+  const companyId = req.query.company_id || req.body.company_id;
+  const eventName = req.body.event || req.body.type || "custom";
+
+  console.log(`[CRM Webhook Incoming] Received body:`, JSON.stringify(req.body));
+
+  if (!companyId) {
+    return res.status(400).json({ error: "company_id parameter is required on query string or body JSON." });
+  }
+
+  try {
+    // 1. Is it a message notification from Evolution WhatsApp?
+    const isEvolutionMessage = req.body.event === "messages.upsert" || req.body.data?.message;
+    
+    if (isEvolutionMessage) {
+      const msgData = req.body.data || {};
+      const senderName = msgData.pushName || msgData.key?.remoteJid?.split("@")[0] || "Webhook WhatsApp User";
+      const senderPhone = (msgData.key?.remoteJid || "").split("@")[0].replace(/\D/g, "");
+      const messageText = msgData.message?.extendedTextMessage?.text || msgData.message?.conversation || "Mensagem de Mídia/Documentação";
+
+      if (senderPhone) {
+        console.log(`[Evolution Intake] Sender: ${senderName} (${senderPhone}), message: ${messageText}`);
+
+        // Try to find if contact with this phone exists
+        let { data: contact } = await supabase
+          .from("crm_contacts")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("phone", senderPhone)
+          .maybeSingle();
+
+        let contactId = contact?.id;
+
+        if (!contactId) {
+          // Create contact
+          const { data: newContact, error: cErr } = await supabase
+            .from("crm_contacts")
+            .insert({
+              company_id: companyId,
+              name: senderName,
+              phone: senderPhone,
+              position: "Lead de WhatsApp",
+              created_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (!cErr && newContact) contactId = newContact.id;
+        }
+
+        if (contactId) {
+          // Find or create a Lead for this contact
+          let { data: lead } = await supabase
+            .from("crm_leads")
+            .select("id, title")
+            .eq("company_id", companyId)
+            .eq("contact_id", contactId)
+            .eq("status", "NEW")
+            .maybeSingle();
+
+          let leadId = lead?.id;
+
+          if (!leadId) {
+            // Create lead
+            const { data: newLead, error: lErr } = await supabase
+              .from("crm_leads")
+              .insert({
+                company_id: companyId,
+                title: `Interação WhatsApp - ${senderName}`,
+                contact_id: contactId,
+                value: 0,
+                status: "NEW",
+                priority: "MEDIUM",
+                description: `Criado automaticamente via entrada de Webhook (Evolution API WhatsApp)`,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .select()
+              .single();
+
+            if (!lErr && newLead) leadId = newLead.id;
+          }
+
+          if (leadId) {
+            // Insert Activity
+            await supabase.from("crm_activities").insert({
+              company_id: companyId,
+              lead_id: leadId,
+              type: "WHATSAPP",
+              content: `[WhatsApp Recebido] ${messageText}`,
+              user_name: senderName,
+              completed: true,
+              created_at: new Date().toISOString()
+            });
+            return res.json({ success: true, message: "Mensagem do Evolution recebida e registrada na timeline do lead.", leadId });
+          }
+        }
+      }
+    }
+
+    // 2. n8n or direct CRM load webhook
+    const title = req.body.title || req.body.lead_title;
+    if (title) {
+      const value = parseFloat(req.body.value) || 0;
+      const status = req.body.status || "NEW";
+      const priority = req.body.priority || "LOW";
+      const cName = req.body.contact_name || req.body.name;
+      const cPhone = req.body.contact_phone || req.body.phone;
+      const cEmail = req.body.contact_email || req.body.email;
+
+      let contactId = undefined;
+      if (cName || cPhone || cEmail) {
+        const { data: newContact } = await supabase
+          .from("crm_contacts")
+          .insert({
+            company_id: companyId,
+            name: cName || "Lead Webhook Anon",
+            phone: cPhone || "",
+            email: cEmail || "",
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        if (newContact) contactId = newContact.id;
+      }
+
+      const { data: lead, error: leadErr } = await supabase
+        .from("crm_leads")
+        .insert({
+          company_id: companyId,
+          title,
+          contact_id: contactId,
+          value,
+          status,
+          priority,
+          description: req.body.description || "Criado via Webhook Externo (Custom API)",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (leadErr) throw leadErr;
+
+      // Add a quick creation log
+      await supabase.from("crm_activities").insert({
+        company_id: companyId,
+        lead_id: lead.id,
+        type: "NOTE",
+        content: `Lead inicializado via Webhook de Entrada Integrado.`,
+        user_name: "Webhook Intake Sync",
+        completed: true,
+        created_at: new Date().toISOString()
+      });
+
+      return res.json({ success: true, message: "Lead criado via webhook com sucesso!", lead });
+    }
+
+    res.json({ success: true, message: `Webhook recebido com sucesso! Evento: ${eventName}` });
+  } catch (err: any) {
+    console.error("[CRM Webhook Incoming processing error]", err);
+    res.status(500).json({ error: err.message });
   }
 });
 

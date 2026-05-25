@@ -46,6 +46,49 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
   const [isScanning, setIsScanning] = useState(false);
   const [scannedImagePreview, setScannedImagePreview] = useState<string | null>(null);
 
+  // Suggest tax fields to Nfse Services state
+  const [suggestedService, setSuggestedService] = useState<{
+    code: string;
+    description: string;
+    aliquot: number;
+    suggested_nbs?: string;
+  } | null>(null);
+  const [isRegisteringService, setIsRegisteringService] = useState(false);
+  const [serviceRegistrySuccess, setServiceRegistrySuccess] = useState(false);
+
+  const handleRegisterSuggestedService = async () => {
+    if (!suggestedService) return;
+    setIsRegisteringService(true);
+    try {
+      const companyId = editingTransaction?.company_id || companies[0]?.id;
+      if (!companyId) {
+        alert("Nenhuma empresa identificada para vincular o serviço.");
+        return;
+      }
+
+      const payload = {
+        company_id: companyId,
+        code: suggestedService.code,
+        description: suggestedService.description,
+        aliquot: suggestedService.aliquot || 0.05,
+        suggested_nbs: suggestedService.suggested_nbs || (suggestedService.code + '.01'),
+        iss_retained: false,
+        aliq_ibs: 0.177,
+        aliq_cbs: 0.088
+      };
+
+      const { error } = await supabase.from('nfse_services').insert([payload]);
+      if (error) throw error;
+
+      setServiceRegistrySuccess(true);
+      if (onUpdate) onUpdate();
+    } catch (e: any) {
+      alert("Erro ao cadastrar serviço: " + formatSupabaseError(e));
+    } finally {
+      setIsRegisteringService(false);
+    }
+  };
+
   // 1. Filter Logic
   const filtered = useMemo(() => {
     return transactions.filter(t => {
@@ -184,7 +227,9 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       reader.onload = async () => {
         const fileContent = reader.result as string;
         let attachment = undefined;
-        let promptText = "Extraia os dados deste recibo/comprovante para adicionar uma nova transação.";
+        let promptText = "Extraia os dados deste recibo/comprovante para adicionar uma nova transação. Se este for um recibo de prestação de serviços nacionais, analise e extraia também as informações de impostos de serviços (como Alíquota ISS, Código Municipal de Serviço LC 116, ou NBS) e adicione-as estruturadas no catálogo 'extractedNfseServices' para sugerirmos o cadastro da NFS-e.";
+        setSuggestedService(null);
+        setServiceRegistrySuccess(false);
 
         if (file.name.toLowerCase().endsWith('.ofx')) {
           promptText = `Analise este arquivo OFX de extrato bancário e extraia TODAS as transações. Conteúdo: \n\n ${fileContent}`;
@@ -192,11 +237,23 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
           setScannedImagePreview(fileContent);
           attachment = { mimeType: file.type || 'image/jpeg', data: fileContent };
           if (file.type === 'application/pdf') {
-            promptText = "Analise este extrato em PDF e extraia TODAS as transações individuais encontradas.";
+            promptText = "Analise este extrato em PDF e extraia TODAS as transações individuais encontradas. Se houver recibos de prestação de serviços com taxas e alíquotas de ISS, código municipal e NBS, extraia-os detalhadamente no catálogo 'extractedNfseServices'.";
           }
         }
         
         const result = await analyzeFinancialInput(promptText, attachment, 'pt');
+
+        if (result.extractedNfseServices && result.extractedNfseServices.length > 0) {
+          const srv = result.extractedNfseServices[0];
+          if (srv.code) {
+             setSuggestedService({
+                code: srv.code,
+                description: srv.description || srv.code,
+                aliquot: srv.aliquot || 0.05,
+                suggested_nbs: srv.suggested_nbs || (srv.code + '.01')
+             });
+          }
+        }
 
         if (result.extractedTransactions && result.extractedTransactions.length > 0) {
           if (result.extractedTransactions.length === 1) {
@@ -419,7 +476,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
       {isEditModalOpen && editingTransaction && (
          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar">
-               <button onClick={() => { setIsEditModalOpen(false); setScannedImagePreview(null); }} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
+               <button onClick={() => { setIsEditModalOpen(false); setScannedImagePreview(null); setSuggestedService(null); setServiceRegistrySuccess(false); }} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">
                   <X size={20} />
                </button>
                
@@ -441,6 +498,51 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                   <div className="mb-6 rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-2">
                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Documento Analisado</p>
                      <img src={scannedImagePreview} alt="Recibo Escaneado" className="w-full h-32 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                  </div>
+               )}
+
+               {suggestedService && editingTransaction.id === 'new' && (
+                  <div className="mb-6 p-4 rounded-2xl border bg-amber-500/10 border-amber-500/30 dark:bg-amber-500/5 dark:border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 animate-in slide-in-from-top-3 duration-300">
+                     <div className="flex gap-2.5 items-start">
+                        <div className="bg-amber-500 text-white p-1.5 rounded-lg mt-0.5 flex items-center justify-center shadow-sm">
+                           <Building2 size={14} />
+                        </div>
+                        <div className="flex-1">
+                           <p className="font-black uppercase text-[9px] tracking-widest text-amber-600 dark:text-amber-400">Dados Fiscais NFS-e Detectados!</p>
+                           <p className="font-bold mt-1 text-[11.5px] leading-relaxed text-slate-800 dark:text-slate-200">Identificamos dados tributários e fiscais de serviço que podem ser cadastrados no seu catálogo:</p>
+                           
+                           <div className="mt-2 bg-white/60 dark:bg-slate-950/40 p-2.5 rounded-xl border border-amber-500/10 font-bold space-y-1 text-slate-700 dark:text-slate-300 text-[11px]">
+                               <div><span className="font-semibold text-slate-400">Código de Serviço:</span> <span className="text-slate-900 dark:text-white font-extrabold">{suggestedService.code}</span></div>
+                               <div><span className="font-semibold text-slate-400">Alíquota ISS:</span> <span className="text-slate-900 dark:text-white font-extrabold">{(suggestedService.aliquot * 100).toFixed(2)}%</span></div>
+                               <div><span className="font-semibold text-slate-400">Descrição:</span> <span className="text-slate-900 dark:text-white font-extrabold">{suggestedService.description}</span></div>
+                               {suggestedService.suggested_nbs && <div><span className="font-semibold text-slate-400">NBS Sugerido:</span> <span className="text-slate-900 dark:text-white font-extrabold">{suggestedService.suggested_nbs}</span></div>}
+                           </div>
+                           
+                           {serviceRegistrySuccess ? (
+                              <p className="text-emerald-600 dark:text-emerald-400 font-extrabold mt-3 flex items-center gap-1.5 uppercase text-[9px] tracking-widest">
+                                 <CheckCircle2 size={12} /> Cadastrado com sucesso na base de serviços NFS-e!
+                              </p>
+                           ) : (
+                              <div className="flex gap-2 mt-3">
+                                 <button
+                                    type="button"
+                                    disabled={isRegisteringService}
+                                    onClick={handleRegisterSuggestedService}
+                                    className="bg-amber-600 hover:bg-amber-550 text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                                 >
+                                    {isRegisteringService ? 'Cadastrando...' : 'Sim, Cadastrar'}
+                                 </button>
+                                 <button
+                                    type="button"
+                                    onClick={() => setSuggestedService(null)}
+                                    className="bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-rose-500 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer"
+                                 >
+                                    Não, obrigado
+                                 </button>
+                              </div>
+                           )}
+                        </div>
+                     </div>
                   </div>
                )}
 

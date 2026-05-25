@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Menu, Loader2, ChevronLeft, ChevronRight, Calendar, Moon, Sun } from 'lucide-react';
-import { Transaction, AppView, ChatMessage, User, Language, Category, Company } from './types';
+import { Transaction, AppView, ChatMessage, User, Language, Category, Company, TransactionScope } from './types';
 import Dashboard from './components/Dashboard';
 import ChatInterface from './components/ChatInterface';
 import TransactionList from './components/TransactionList';
@@ -16,6 +16,7 @@ import CRMManager from './components/CRMManager';
 import StripeManager from './components/StripeManager';
 import MasterConfig from './components/MasterConfig';
 import Tutorial from './components/Tutorial';
+import KnowledgeBaseManager from './components/KnowledgeBaseManager';
 import Login from './components/Login';
 import ShopManager from './components/Shop/ShopManager';
 import { translations } from './lib/translations';
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [selectedScope, setSelectedScope] = useState<TransactionScope>('BUSINESS');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -139,10 +141,10 @@ const App: React.FC = () => {
       FinancialService.syncRecurrence(currentUser.company_id).catch(console.warn);
 
       const [transData, catData, msgData, leadsData] = await Promise.all([
-        FinancialService.getTransactions(currentUser.company_id, currentUser.id, currentUser.role),
+        FinancialService.getTransactions(currentUser.company_id, currentUser.id, currentUser.role, selectedScope),
         FinancialService.getCategories(currentUser.company_id),
         FinancialService.getChatHistory(currentUser.id),
-        FinancialService.getCRMLeads(currentUser.company_id)
+        FinancialService.getCRMLeads(currentUser.company_id, selectedScope)
       ]);
 
       let companiesData: Company[] = [];
@@ -185,7 +187,7 @@ const App: React.FC = () => {
     }
   }, [currentUser]); // Dependência explícita
 
-  useEffect(() => { if (currentUser) fetchData(); }, [currentUser, fetchData]);
+  useEffect(() => { if (currentUser) fetchData(); }, [currentUser, fetchData, selectedScope]);
 
   // View Access Guard
   useEffect(() => {
@@ -269,7 +271,7 @@ const App: React.FC = () => {
         type: newTrans.type || 'EXPENSE',
         status: finalStatus,
         cost_type: newTrans.cost_type || 'VARIABLE',
-        scope: newTrans.scope || 'BUSINESS',
+        scope: newTrans.scope || selectedScope,
         date: finalDate,
         due_date: finalDueDate,
         is_recurring: !!newTrans.is_recurring,
@@ -314,7 +316,7 @@ const App: React.FC = () => {
             type: item.type || 'EXPENSE',
             status: finalStatus,
             cost_type: item.cost_type || 'VARIABLE',
-            scope: item.scope || 'BUSINESS',
+            scope: item.scope || selectedScope,
             date: finalDate,
             due_date: finalDueDate,
             is_recurring: !!item.is_recurring,
@@ -411,8 +413,25 @@ const App: React.FC = () => {
       <main className="flex-1 lg:ml-64 relative flex flex-col h-screen overflow-hidden">
         <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 md:px-10 shrink-0 z-30 transition-colors duration-300">
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"><Menu size={24} /></button>
-            <div className="hidden md:block">
+             <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"><Menu size={24} /></button>
+             
+             {/* Global Scope Switcher */}
+             <div className="hidden lg:flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button 
+                  onClick={() => setSelectedScope('BUSINESS')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${selectedScope === 'BUSINESS' ? 'bg-white dark:bg-slate-700 text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Empresa
+                </button>
+                <button 
+                  onClick={() => setSelectedScope('PERSONAL')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${selectedScope === 'PERSONAL' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Pessoal
+                </button>
+             </div>
+
+             <div className="hidden md:block">
                <h1 className="text-lg font-black text-slate-800 dark:text-white tracking-tight uppercase">FinanAI OS / {view}</h1>
                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                   <span>{currentTime.toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', day: '2-digit', month: 'long' })}</span>
@@ -457,8 +476,8 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
-          <div className="max-w-6xl mx-auto h-full">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 relative custom-scrollbar">
+          <div className="max-w-6xl mx-auto min-h-full flex flex-col">
             {isLoading ? <div className="flex flex-col items-center justify-center h-full"><Loader2 className="animate-spin text-emerald-500 mb-4" size={48} /><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Neural Syncing...</p></div> 
             : (view === AppView.RECEIVABLES || view === AppView.PAYABLES) ? 
               <ReceivablesManager 
@@ -485,6 +504,8 @@ const App: React.FC = () => {
                <MasterConfig />
             : view === AppView.TUTORIAL ?
                <Tutorial />
+            : view === AppView.KNOWLEDGE_BASE ?
+               <KnowledgeBaseManager currentUser={currentUser!} />
             : view === AppView.TRANSACTIONS ? 
               <TransactionList 
                 transactions={filteredTransactions} 

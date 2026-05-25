@@ -119,7 +119,8 @@ export enum AppView {
   STRIPE = 'STRIPE',
   TUTORIAL = 'TUTORIAL',
   MASTER_CONFIG = 'MASTER_CONFIG',
-  SHOP = 'SHOP'
+  SHOP = 'SHOP',
+  KNOWLEDGE_BASE = 'KNOWLEDGE_BASE'
 }
 
 export interface NfseClient {
@@ -172,6 +173,7 @@ export interface NfseRps {
   valor_inicial_cobrado?: number;
   valor_final_cobrado?: number;
   exigibilidade_suspensa?: boolean;
+  scope?: TransactionScope;
 }
 
 export interface NfseConfig {
@@ -200,6 +202,7 @@ export interface CRMContact {
   last_interaction?: string;
   created_at: string;
   tags?: string[];
+  scope?: TransactionScope;
 }
 
 export interface CRMLead {
@@ -219,6 +222,7 @@ export interface CRMLead {
   created_at: string;
   updated_at: string;
   tags?: string[];
+  scope?: TransactionScope;
 }
 
 export interface CRMActivity {
@@ -287,6 +291,7 @@ export interface Product {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  scope?: TransactionScope;
 }
 
 export interface ProductVariation {
@@ -315,6 +320,7 @@ export interface ShopCustomer {
   address_state?: string;
   address_zip?: string;
   created_at: string;
+  scope?: TransactionScope;
 }
 
 export interface Supplier {
@@ -353,6 +359,7 @@ export interface SalesOrder {
   tracking_code?: string;
   created_at: string;
   updated_at: string;
+  scope?: TransactionScope;
 }
 
 export interface OrderItem {
@@ -364,3 +371,13 @@ export interface OrderItem {
   unit_price: number;
   total_price: number;
 }
+
+export interface KnowledgeBaseArticle {
+  id: string;
+  company_id?: string | null;
+  category: 'NFS-e' | 'Impostos' | 'Reforma Tributária' | 'CRM' | 'Financeiro' | 'Geral';
+  title: string;
+  content: string;
+  created_at?: string;
+}
+

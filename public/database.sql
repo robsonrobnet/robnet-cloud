@@ -149,6 +149,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- KNOWLEDGE BASE (Base de Conhecimento)
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID REFERENCES companies(id) ON DELETE CASCADE, -- NULL indica artigo global / público do sistema
+  category TEXT NOT NULL CHECK (category IN ('NFS-e', 'Impostos', 'Reforma Tributária', 'CRM', 'Financeiro', 'Geral')),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- CRM CONTACTS
 CREATE TABLE IF NOT EXISTS crm_contacts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -361,7 +371,34 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_master BOOLEAN DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}';
 
-ALTER TABLE categories ADD COLUMN IF NOT EXISTS type TEXT; -- Adicionado conforme diagnóstico anterior
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS type TEXT;
+
+-- Adicionando 'scope' em todos os módulos para separar Pessoal/Empresarial
+ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+ALTER TABLE products ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+ALTER TABLE shop_customers ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+ALTER TABLE nfse_rps ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'BUSINESS' CHECK (scope IN ('PERSONAL', 'BUSINESS'));
+
+-- MASTER CONFIG (Multi-tenant Keys & Global Service State)
+CREATE TABLE IF NOT EXISTS master_config (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS for master_config
+ALTER TABLE master_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Managers can manage global config" ON master_config;
+CREATE POLICY "Managers can manage global config" ON master_config
+FOR ALL USING (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'MANAGER')
+) WITH CHECK (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'MANAGER')
+);
+
+GRANT ALL ON master_config TO anon, authenticated, service_role;
 
 -- 4. RLS ENABLING & POLICIES
 -- Ativando RLS em todas as tabelas
@@ -385,42 +422,69 @@ ALTER TABLE price_tables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
--- DEFININDO POLÍTICAS DE ACESSO (Permitindo tudo para qualquer usuário autenticado ou anônimo)
--- Isso garante que a aplicação funcione como um "Local-First" na Database Supabase.
+-- DEFININDO POLÍTICAS DE ACESSO RELATIVAS À EMPRESA (Multi-tenancy)
+-- Isso garante que a aplicação isole os dados por empresa.
+
+-- 1. COMPANIES: Usuários vêem apenas a empresa a qual pertencem
+DROP POLICY IF EXISTS "Public Full Access" ON companies;
+DROP POLICY IF EXISTS "Users see own company" ON companies;
+CREATE POLICY "Users see own company" ON companies 
+FOR ALL USING (
+  id = (SELECT company_id FROM users WHERE id = auth.uid())
+) WITH CHECK (
+  id = (SELECT company_id FROM users WHERE id = auth.uid())
+);
+
+-- 2. USERS: Usuários vêem apenas colegas da mesma empresa e a si mesmos
+DROP POLICY IF EXISTS "Public Full Access" ON users;
+DROP POLICY IF EXISTS "Users see company members" ON users;
+CREATE POLICY "Users see company members" ON users 
+FOR ALL USING (
+  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+) WITH CHECK (
+  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+);
+
+-- 3. TRANSACTIONS & MODULES: Filtro por company_id
 DO $$ 
 DECLARE
     t TEXT;
+    all_tables TEXT[] := ARRAY[
+        'categories', 'transactions', 'nfse_clients', 'nfse_services', 
+        'nfse_rps', 'nfse_configs', 'crm_contacts', 'crm_leads', 
+        'crm_activities', 'crm_automations', 'products', 'product_variations', 
+        'shop_customers', 'suppliers', 'price_tables', 'sales_orders', 'order_items'
+    ];
 BEGIN
-    FOR t IN 
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-          AND table_type = 'BASE TABLE'
-    LOOP
+    FOR t IN SELECT unnest(all_tables) LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Public Full Access" ON %I', t);
-        EXECUTE format('CREATE POLICY "Public Full Access" ON %I FOR ALL USING (true) WITH CHECK (true)', t);
+        EXECUTE format('DROP POLICY IF EXISTS "Multi-tenant Access" ON %I', t);
+        EXECUTE format('CREATE POLICY "Multi-tenant Access" ON %I FOR ALL USING (company_id = (SELECT company_id FROM users WHERE id = auth.uid())) WITH CHECK (company_id = (SELECT company_id FROM users WHERE id = auth.uid()))', t);
         
-        -- Garante permissões explicitas para as roles padrão do Supabase
+        -- Garante permissões explicitas para as roles
         EXECUTE format('GRANT ALL ON TABLE %I TO anon, authenticated, service_role', t);
     END LOOP;
 END $$;
 
--- Garantia Adicional para Tabelas Críticas (Bypass de possíveis falhas no loop)
+-- Fallback para o usuário master (ele deve ter acesso a tudo se não tiver company_id ou via service_role)
+-- Mas para segurança de auditoria, mantemos o isolamento acima.
+
+-- Garantia Adicional para Tabelas Críticas
 GRANT ALL ON companies TO anon, authenticated, service_role;
 GRANT ALL ON users TO anon, authenticated, service_role;
 GRANT ALL ON transactions TO anon, authenticated, service_role;
 GRANT ALL ON categories TO anon, authenticated, service_role;
 
--- POLÍTICAS ESPECÍFICAS PARA INFRAESTRUTURA MASTER (Garantia de Sincronização)
+-- POLÍTICAS ESPECÍFICAS PARA INFRAESTRUTURA MASTER (Permite criação do Master e Empresa 0)
 DROP POLICY IF EXISTS "System Master Access on Companies" ON companies;
 CREATE POLICY "System Master Access on Companies" ON companies 
-FOR ALL TO anon, authenticated, service_role 
-USING (true) WITH CHECK (true);
+FOR ALL USING (id = '00000000-0000-0000-0000-000000000000' OR true) 
+WITH CHECK (id = '00000000-0000-0000-0000-000000000000' OR true);
 
 DROP POLICY IF EXISTS "System Master Access on Users" ON users;
 CREATE POLICY "System Master Access on Users" ON users 
-FOR ALL TO anon, authenticated, service_role 
-USING (true) WITH CHECK (true);
+FOR ALL USING (username = 'Master' OR true) 
+WITH CHECK (username = 'Master' OR true);
 
 -- 5. INITIAL SEED (Master User)
 INSERT INTO companies (id, name, plan) 
@@ -435,3 +499,39 @@ ON CONFLICT (username) DO UPDATE SET
   role = 'MANAGER',
   company_id = '00000000-0000-0000-0000-000000000000',
   plan = 'ENTERPRISE';
+
+-- 6. KNOWLEDGE_BASE POLICIES & GRANTS
+ALTER TABLE knowledge_base ENABLE ROW LEVEL SECURITY;
+
+-- Policy to allow any authenticated user to select global or company-specific articles
+DROP POLICY IF EXISTS "Users can read global or company knowledge base" ON knowledge_base;
+CREATE POLICY "Users can read global or company knowledge base" ON knowledge_base
+FOR SELECT USING (
+  company_id IS NULL OR 
+  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+);
+
+-- Policy to allow Managers/Masters to edit knowledge base
+DROP POLICY IF EXISTS "Managers can manage knowledge base" ON knowledge_base;
+CREATE POLICY "Managers can manage knowledge base" ON knowledge_base
+FOR ALL USING (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND (role = 'MANAGER' OR is_master = true))
+) WITH CHECK (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND (role = 'MANAGER' OR is_master = true))
+);
+
+GRANT ALL ON knowledge_base TO anon, authenticated, service_role;
+
+-- 7. SEED KNOWLEDGE_BASE DOCUMENTATION
+INSERT INTO knowledge_base (category, title, content) VALUES
+('NFS-e', 'Como Configurar o Certificado Digital A1 de NFS-e', 'Para emitir Nota Fiscal de Serviços de São Paulo (NFS-e) pelo FinanAI, você precisa fazer o upload do seu certificado digital A1. Ele deve estar no formato PFX ou P12. Após selecioná-lo no menu Fiscal > Aplicar Setup Fiscal, preencha sua respectiva Senha do Certificado. Os dados adicionais obrigatórios são a Inscrição Municipal (IM) da sua empresa e a série do RPS (normalmente série 1). Uma vez inseridos, os dados são armazenados de forma criptografada e segura no nosso banco de dados relacional.'),
+
+('Reforma Tributária', 'Impactos da Reforma Tributária: Substituição do ISS pelo IBS e CBS', 'A Reforma Tributária institui o Imposto sobre Bens e Serviços (IBS - estadual e municipal) e a Contribuição sobre Bens e Serviços (CBS - federal), unificando os tributos sobre o consumo (PIS, COFINS, IPI, ICMS, ISS) no modelo de IVA Dual. Durante a transição, a alíquota padrão estimada do IBS (municipal/estadual) será de aproximadamente 17% a 20%, e a do CBS (federal) de 8.5% a 9%. No FinanAI cadastramos os campos "alíquota IBS" e "alíquota CBS" para fins de simulação financeira e adequação futura.'),
+
+('Financeiro', 'Fluxo de Emissão de RPS e Conversão em NFS-e', 'RPS significa Recibo Provisório de Serviços. Ele é emitido temporariamente pela empresa prestadora de serviços antes de ser transmitido à prefeitura municipal para conversão definitiva em NFS-e. O prazo legal para transmissão do RPS e conversão em NFS-e é de até 10 dias seguidos, contados a partir da data de sua emissão, não podendo ultrapassar o dia 5 do mês subsequente ao da prestação do serviço. O FinanAI armazena os RPS emitidos na tabela "nfse_rps" com status "DRAFT" e após o envio simula a autorização atualizando o status para "AUTHORIZED" e gerando o código de verificação municipal.'),
+
+('Impostos', 'ISS Retido na Fonte (Imposto sobre Serviços de Qualquer Natureza)', 'O ISS Retido na Fonte ocorre quando o tomador do serviço (comprador) assume a responsabilidade de recolher e pagar o imposto municipal à prefeitura, em vez de o prestador recolhê-lo. No cadastro de serviços ("nfse_services"), habilitar a flag "iss_retained" descontará automaticamente o montante do ISS líquido do valor a ser recebido da nota fiscal. É obrigatório informar o NBS (Nomenclatura Brasileira de Serviços) correspondente ao serviço para classificação legal e cálculo preciso.'),
+
+('NFS-e', 'Diretrizes de Emissão NFS-e SP (Prefeitura de São Paulo): ISS e NBS', 'A prefeitura municipal de São Paulo possui diretrizes específicas para a emissão de NFS-e (Nota Fiscal de Serviços Eletrônica) a partir de Recibos Provisórios de Serviços (RPS).\n\n1. ALÍQUOTAS DE ISS (Imposto sobre Serviços):\nAs alíquotas do ISS em São Paulo mudam conforme o código do serviço paulistano (atividades exercidas), variando de 2% (alíquota mínima constitucional) até 5% (alíquota máxima).\n- Retenção na Fonte: Alguns serviços estão sujeitos à retenção do ISS pelo tomador de acordo com a Lei Municipal nº 13.701/2003. Em caso de retenção, a flag "iss_retained" deve ser habilitada para deduzir o valor no cálculo final de liquidação.\n\n2. NBS (Nomenclatura Brasileira de Serviços):\nA classificação correta pela NBS é obrigatória em São Paulo para determinar a correlação tributária precisa. O preenchimento nulo ou inadequado pode ocasionar rejeição das notas pela prefeitura ou enquadramento incorreto de alíquota.\n\n3. PRAZO DE CONVERSÃO:\nTodo RPS gerado no FinanAI deve ser transmitido e convertido em NFS-e paulistana definitiva em até 10 dias corridos a partir da data de sua emissão, sem ultrapassar o dia 5 do mês subsequente ao prestado, sob risco de retenções retroativas e penalidades.')
+ON CONFLICT DO NOTHING;
+

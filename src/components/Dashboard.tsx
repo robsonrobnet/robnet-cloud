@@ -370,36 +370,36 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
       </div>
 
       {/* Header & CRM Pipeline Section */}
-      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-4 gap-6 bg-slate-900 dark:bg-white rounded-[3rem] p-8 shadow-2xl relative overflow-hidden text-white dark:text-slate-900 border border-white/5 dark:border-slate-200">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 bg-slate-900 dark:bg-white rounded-2xl sm:rounded-[3rem] p-4 sm:p-8 shadow-2xl relative overflow-hidden text-white dark:text-slate-900 border border-white/5 dark:border-slate-200">
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none" />
-        <div className="lg:col-span-1 border-r border-white/10 dark:border-slate-200 pr-6 relative z-10">
+        <div className="lg:col-span-1 lg:border-r border-b lg:border-b-0 border-white/10 dark:border-slate-200 pb-4 lg:pb-0 pr-0 lg:pr-6 relative z-10 mb-4 lg:mb-0">
           <div className="flex items-center gap-3 mb-4">
-             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-xl shadow-indigo-500/20 hover:scale-110 transition-transform"><Target size={20} /></div>
+             <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-xl shadow-indigo-500/20 hover:scale-110 transition-transform"><Target size={16} /></div>
              <div>
-                <h3 className="text-lg font-black uppercase tracking-tight">Vendas & CRM</h3>
-                <p className="text-[10px] font-bold text-white/50 dark:text-slate-500 uppercase tracking-widest">Performance Comercial</p>
+                <h3 className="text-base sm:text-lg font-black uppercase tracking-tight">Vendas & CRM</h3>
+                <p className="text-[9px] sm:text-[10px] font-bold text-white/50 dark:text-slate-500 uppercase tracking-widest">Performance Comercial</p>
              </div>
           </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-3 rounded-2xl border border-white/5 dark:border-slate-100">
-              <span className="text-[10px] font-black uppercase opacity-60">Status Ativo</span>
-              <span className="text-sm font-black text-indigo-400 dark:text-indigo-600">{crmStats.activeLeads} Leads</span>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-white/5 dark:border-slate-100">
+              <span className="text-[9px] sm:text-[10px] font-black uppercase opacity-60">Status Ativo</span>
+              <span className="text-xs sm:text-sm font-black text-indigo-400 dark:text-indigo-600">{crmStats.activeLeads} Leads</span>
             </div>
-            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-3 rounded-2xl border border-white/5 dark:border-slate-100">
-              <span className="text-[10px] font-black uppercase opacity-60">Faturamento Real</span>
-              <span className="text-sm font-black text-emerald-400 dark:text-emerald-600">R$ {crmStats.wonValue.toLocaleString('pt-BR')}</span>
+            <div className="flex justify-between items-center bg-white/5 dark:bg-slate-50 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-white/5 dark:border-slate-100">
+              <span className="text-[9px] sm:text-[10px] font-black uppercase opacity-60">Faturamento</span>
+              <span className="text-xs sm:text-sm font-black text-emerald-400 dark:text-emerald-600">R$ {crmStats.wonValue.toLocaleString('pt-BR')}</span>
             </div>
           </div>
         </div>
 
-        <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pl-0 lg:pl-6 relative z-10">
+        <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 pl-0 lg:pl-6 relative z-10">
           <div className="flex flex-col justify-center">
             <div className="flex justify-between items-end mb-1">
-               <p className="text-[10px] font-black uppercase opacity-50">Ticket Médio Estimado</p>
+               <p className="text-[9px] sm:text-[10px] font-black uppercase opacity-50">Ticket Médio</p>
                <TrendingUp size={14} className="text-indigo-400 mb-1" />
             </div>
-            <h4 className="text-2xl font-black tabular-nums">R$ {(crmStats.totalValue / (crmStats.activeLeads || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</h4>
-            <div className="mt-3 w-full bg-white/10 dark:bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+            <h4 className="text-xl sm:text-2xl font-black tabular-nums">R$ {(crmStats.totalValue / (crmStats.activeLeads || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</h4>
+            <div className="mt-2 w-full bg-white/10 dark:bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
                <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: '68%' }}
@@ -410,11 +410,11 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
           </div>
           <div className="flex flex-col justify-center">
              <div className="flex justify-between items-end mb-1">
-               <p className="text-[10px] font-black uppercase opacity-50">Taxa de Conversão</p>
+               <p className="text-[9px] sm:text-[10px] font-black uppercase opacity-50">Conversão</p>
                <Zap size={14} className="text-emerald-400 mb-1" />
             </div>
-            <h4 className="text-2xl font-black text-emerald-400 tabular-nums">24.8%</h4>
-            <div className="mt-3 w-full bg-white/10 dark:bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+            <h4 className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">24.8%</h4>
+            <div className="mt-2 w-full bg-white/10 dark:bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
                <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: '25%' }}
@@ -423,70 +423,85 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                />
             </div>
           </div>
-          <div className="flex flex-col justify-center bg-white/5 dark:bg-slate-50 p-5 rounded-[2.5rem] border border-white/5 dark:border-slate-100 shadow-inner group cursor-pointer hover:bg-white/10 dark:hover:bg-slate-100/80 transition-all">
-             <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 bg-amber-500/20 rounded-lg flex items-center justify-center"><Sparkles size={14} className="text-amber-500" /></div>
-                <p className="text-[10px] font-black uppercase text-amber-500 tracking-widest">Neural Insights</p>
+          <div className="flex flex-col justify-center bg-white/5 dark:bg-slate-50 p-3 sm:p-5 rounded-2xl sm:rounded-[2.5rem] border border-white/5 dark:border-slate-100 shadow-inner group cursor-pointer hover:bg-white/10 dark:hover:bg-slate-100/80 transition-all">
+             <div className="flex items-center gap-2 mb-1">
+                <div className="w-5 h-5 bg-amber-500/20 rounded-lg flex items-center justify-center"><Sparkles size={12} className="text-amber-500" /></div>
+                <p className="text-[9px] sm:text-[10px] font-black uppercase text-amber-500 tracking-widest">Neural Insights</p>
              </div>
-             <p className="text-[11px] font-bold leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity">"Detectamos 3 oportunidades com perfil 'PRO' prontas para envio de proposta imediata."</p>
+             <p className="text-[10px] sm:text-[11px] font-bold leading-normal opacity-80 group-hover:opacity-100 transition-opacity">"Detectamos 3 oportunidades com perfil 'PRO' prontas para envio imediato."</p>
           </div>
         </div>
       </motion.div>
 
       {/* Tab Selector */}
-      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-full md:w-fit overflow-x-auto">
-          <button onClick={() => setActiveTab('ALL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ALL' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity size={14} /> Consolidado</button>
-          <button onClick={() => setActiveTab('BUSINESS')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Building2 size={14} /> Empresas</button>
-          <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><UserIcon size={14} /> Pessoal</button>
+      <motion.div variants={itemVariants} className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm w-full lg:w-fit overflow-x-auto shrink-0 scrollbar-none">
+          <button onClick={() => setActiveTab('ALL')} className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex-1 lg:flex-none whitespace-nowrap ${activeTab === 'ALL' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity size={12} /> Consolidado</button>
+          <button onClick={() => setActiveTab('BUSINESS')} className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex-1 lg:flex-none whitespace-nowrap ${activeTab === 'BUSINESS' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Building2 size={12} /> Empresas</button>
+          <button onClick={() => setActiveTab('PERSONAL')} className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex-1 lg:flex-none whitespace-nowrap ${activeTab === 'PERSONAL' ? 'bg-teal-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><UserIcon size={12} /> Pessoal</button>
         </div>
 
-        <button 
-          onClick={() => {
-            setFormData({
-              description: '', amount: '', category_id: '', scope: activeTab === 'PERSONAL' ? 'PERSONAL' : 'BUSINESS', company_id: companies[0]?.id || '',
-              date: new Date().toISOString().split('T')[0], due_date: new Date().toISOString().split('T')[0],
-              is_recurring: false, status: 'PENDING', type: 'EXPENSE', contact_email: ''
-            });
-            setEditingTransaction(null);
-            setShowAddModal(true);
-          }}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2"
-        >
-          <Plus size={16} /> Novo Lançamento
-        </button>
+        <div className="flex gap-2 w-full lg:w-auto">
+          <button 
+            onClick={() => {
+              setFormData({
+                description: '', amount: '', category_id: '', scope: activeTab === 'PERSONAL' ? 'PERSONAL' : 'BUSINESS', company_id: companies[0]?.id || '',
+                date: new Date().toISOString().split('T')[0], due_date: new Date().toISOString().split('T')[0],
+                is_recurring: false, status: 'PENDING', type: 'EXPENSE', contact_email: ''
+              });
+              setEditingTransaction(null);
+              setShowAddModal(true);
+            }}
+            className="flex-1 lg:flex-initial bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-3 sm:px-5 sm:py-3 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-1.5"
+          >
+            <Plus size={14} /> lançar
+          </button>
 
-        <button 
-          onClick={() => setShowAIAnalyzer(true)}
-          className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2 border border-white/10"
-        >
-          <Sparkles size={16} className="text-indigo-400" /> Scanner Inteligente IA
-        </button>
+          <button 
+            onClick={() => setShowAIAnalyzer(true)}
+            className="flex-1 lg:flex-initial bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-3 py-3 sm:px-5 sm:py-3 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-1.5 border border-white/10 dark:border-slate-200"
+          >
+            <Sparkles size={14} className="text-indigo-400 dark:text-indigo-600" /> Scanner IA
+          </button>
+        </div>
       </motion.div>
 
       {/* Main Stats Grid */}
-      <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl relative overflow-hidden group transition-all">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{t.balance}</p>
-          <h4 className={`text-2xl font-black tabular-nums ${viewData.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>R$ {viewData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
-          <div className="mt-2 flex items-center gap-2"><span className={`text-[10px] font-black px-2 py-1 rounded-lg ${viewData.balance >= 0 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-rose-600 bg-rose-50 dark:bg-rose-900/30'}`}>{activeTab === 'ALL' ? 'Visão Global' : activeTab === 'BUSINESS' ? 'Corporativo' : 'Pessoal'}</span></div>
+      <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl relative overflow-hidden group transition-all">
+          <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 sm:mb-2">{t.balance}</p>
+          <h4 className={`text-base sm:text-2xl font-black tabular-nums ${viewData.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>R$ {viewData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
+          <div className="mt-1 sm:mt-2 flex items-center gap-2">
+            <span className={`text-[8px] sm:text-[10px] font-black px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-md sm:rounded-lg ${viewData.balance >= 0 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-rose-600 bg-rose-50 dark:bg-rose-900/30'}`}>
+              {activeTab === 'ALL' ? 'Global' : activeTab === 'BUSINESS' ? 'Corp.' : 'Pes.'}
+            </span>
+          </div>
         </div>
         
-        <div className={`${activeTab === 'PERSONAL' ? 'bg-teal-600' : activeTab === 'BUSINESS' ? 'bg-indigo-600' : 'bg-emerald-600'} p-6 rounded-[2.5rem] shadow-xl text-white group transition-all duration-500`}>
-          <div className="flex items-center justify-between mb-2"><p className="text-[10px] font-black text-white/70 uppercase tracking-widest">{t.incomes}</p><ArrowUpRight size={18} /></div>
-          <h4 className="text-2xl font-black tabular-nums">R$ {viewData.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
+        <div className={`${activeTab === 'PERSONAL' ? 'bg-teal-600' : activeTab === 'BUSINESS' ? 'bg-indigo-600' : 'bg-emerald-600'} p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] shadow-xl text-white group transition-all duration-500`}>
+          <div className="flex items-center justify-between mb-1 sm:mb-2">
+            <p className="text-[9px] sm:text-[10px] font-black text-white/70 uppercase tracking-widest">{t.incomes}</p>
+            <ArrowUpRight size={14} className="sm:w-[18px] sm:h-[18px]" />
+          </div>
+          <h4 className="text-base sm:text-2xl font-black tabular-nums">R$ {viewData.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl group transition-all">
-          <div className="flex items-center justify-between mb-2"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.expenses}</p><ArrowDownRight size={18} className="text-rose-500" /></div>
-          <h4 className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">R$ {viewData.expense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl group transition-all">
+          <div className="flex items-center justify-between mb-1 sm:mb-2">
+            <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.expenses}</p>
+            <ArrowDownRight size={14} className="text-rose-500 sm:w-[18px] sm:h-[18px]" />
+          </div>
+          <h4 className="text-base sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">R$ {viewData.expense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl group transition-all relative overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl group transition-all relative overflow-hidden">
            <div className="relative z-10">
-             <div className="flex items-center justify-between mb-2"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><Zap size={12} /> Projeção Mensal</p><Target size={18} className="text-amber-500" /></div>
-             <h4 className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">R$ {financialStatement.forecastTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
-             <p className="mt-2 text-[10px] font-bold text-amber-500 bg-amber-50 dark:bg-amber-900/30 px-2 py-1 rounded-lg w-fit">Base: R$ {financialStatement.avgDailySpend.toFixed(0)}/dia</p>
+             <div className="flex items-center justify-between mb-1 sm:mb-2">
+               <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-0.5 sm:gap-1"><Zap size={10} className="sm:w-[12px] sm:h-[12px]" /> Projeção</p>
+               <Target size={14} className="text-amber-500 sm:w-[18px] sm:h-[18px]" />
+             </div>
+             <h4 className="text-base sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums font-black">R$ {financialStatement.forecastTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
+             <p className="mt-1 sm:mt-2 text-[8px] sm:text-[10px] font-bold text-amber-500 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md w-fit">Base: R$ {financialStatement.avgDailySpend.toFixed(0)}/d</p>
            </div>
         </div>
       </motion.div>
@@ -494,18 +509,18 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
       {/* Bento Grid Visualizations */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Monthly Evolution */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-8">
             <div>
-              <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Evolução Mensal</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Comparativo de receitas e despesas (6 meses)</p>
+              <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Evolução Mensal</h3>
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Comparativo de receitas e despesas (6 meses)</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Receitas</span></div>
-              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Despesas</span></div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div><span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400">Receitas</span></div>
+              <div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400">Despesas</span></div>
             </div>
           </div>
-          <div className="h-[300px] w-full">
+          <div className="h-[180px] sm:h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyEvolutionData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -520,10 +535,10 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
         </div>
 
         {/* Cost Type Distribution */}
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">Estrutura de Custos</h3>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Fixo vs Variável</p>
-          <div className="h-[250px] w-full relative">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">Estrutura de Custos</h3>
+          <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 sm:mb-8">Fixo vs Variável</p>
+          <div className="h-[160px] sm:h-[250px] w-full relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -561,18 +576,18 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
         </div>
 
         {/* Spending Trends */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-8">
             <div>
-              <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Fluxo de Caixa</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tendência diária de entradas e saídas</p>
+              <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Fluxo de Caixa</h3>
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tendência diária de entradas e saídas</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Entradas</span></div>
-              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div><span className="text-[9px] font-black uppercase text-slate-400">Saídas</span></div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div><span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400">Entradas</span></div>
+              <div className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400">Saídas</span></div>
             </div>
           </div>
-          <div className="h-[300px] w-full">
+          <div className="h-[180px] sm:h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trendData}>
                 <defs>
@@ -597,10 +612,10 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
         </div>
 
         {/* Category Distribution */}
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">Distribuição</h3>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Gastos por categoria</p>
-          <div className="h-[250px] w-full relative">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-8 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">Distribuição</h3>
+          <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 sm:mb-8">Gastos por categoria</p>
+          <div className="h-[160px] sm:h-[250px] w-full relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -640,121 +655,121 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Financial Insights */}
-        <div className="bg-slate-900 dark:bg-white rounded-[3rem] p-8 text-white dark:text-slate-900 shadow-2xl relative overflow-hidden">
+        <div className="bg-slate-900 dark:bg-white rounded-2xl sm:rounded-[3rem] p-4 sm:p-8 text-white dark:text-slate-900 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-10"><Brain size={120} /></div>
           <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-white/10 dark:bg-slate-900/10 rounded-xl flex items-center justify-center"><Sparkles size={20} className="text-indigo-400" /></div>
-              <h3 className="text-lg font-black uppercase tracking-tight">Insights IA</h3>
+            <div className="flex items-center gap-3 mb-4 sm:mb-8">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white/10 dark:bg-slate-900/10 rounded-xl flex items-center justify-center"><Sparkles size={16} className="text-indigo-400 sm:w-[20px] sm:h-[20px]" /></div>
+              <h3 className="text-base sm:text-lg font-black uppercase tracking-tight">Insights IA</h3>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {insights.length > 0 ? insights.map((insight, i) => (
-                <div key={i} className="flex items-start gap-4 p-4 bg-white/5 dark:bg-slate-900/5 rounded-2xl border border-white/10 dark:border-slate-900/10">
-                  <div className="mt-1">{insight.icon}</div>
-                  <p className="text-xs font-bold leading-relaxed">{insight.text}</p>
+                <div key={i} className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-white/5 dark:bg-slate-900/5 rounded-xl sm:rounded-2xl border border-white/10 dark:border-slate-900/10">
+                  <div className="mt-0.5 sm:mt-1 scale-90 sm:scale-100">{insight.icon}</div>
+                  <p className="text-[10px] sm:text-xs font-bold leading-normal sm:leading-relaxed">{insight.text}</p>
                 </div>
               )) : (
-                <div className="flex items-start gap-4 p-4 bg-white/5 dark:bg-slate-900/5 rounded-2xl border border-white/10 dark:border-slate-900/10">
-                  <div className="mt-1"><CheckCircle2 className="text-emerald-400" /></div>
-                  <p className="text-xs font-bold leading-relaxed">Seu comportamento financeiro está estável este mês. Continue assim!</p>
+                <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-white/5 dark:bg-slate-900/5 rounded-xl sm:rounded-2xl border border-white/10 dark:border-slate-900/10">
+                  <div className="mt-0.5 sm:mt-1 scale-90 sm:scale-100"><CheckCircle2 className="text-emerald-400" /></div>
+                  <p className="text-[10px] sm:text-xs font-bold leading-normal sm:leading-relaxed">Seu comportamento financeiro está estável este mês. Continue assim!</p>
                 </div>
               )}
             </div>
-            <button className="w-full mt-8 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all">
-              <Zap size={14} /> Gerar Relatório Completo
+            <button className="w-full mt-4 sm:mt-8 py-3 sm:py-4 bg-indigo-600 text-white rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all">
+              <Zap size={12} /> Gerar Relatório Completo
             </button>
           </div>
         </div>
 
         {/* Financial Statement */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl flex items-center justify-center"><Receipt size={24} /></div>
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 p-4 sm:p-8 shadow-sm">
+          <div className="flex items-center gap-3 mb-4 sm:mb-8">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl sm:rounded-2xl flex items-center justify-center"><Receipt size={20} className="sm:w-[24px] sm:h-[24px]" /></div>
             <div>
-              <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Demonstrativo Mensal</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Extrato Consolidado</p>
+              <h3 className="text-lg sm:text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Demonstrativo Mensal</h3>
+              <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest">Extrato Consolidado</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">Receita Total</span>
-                <ArrowUpRight size={14} className="text-emerald-500" />
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-[9px] sm:text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">Receita Total</span>
+                <ArrowUpRight size={12} className="text-emerald-500 sm:w-[14px] sm:h-[14px]" />
               </div>
-              <p className="text-xl font-black text-emerald-600 tabular-nums">+ R$ {financialStatement.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm sm:text-xl font-black text-emerald-600 tabular-nums">+ R$ {financialStatement.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Despesas Op.</span>
-                <Tag size={14} className="text-slate-400" />
+            <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest">Despesas Op.</span>
+                <Tag size={12} className="text-slate-400 sm:w-[14px] sm:h-[14px]" />
               </div>
-              <p className="text-xl font-black text-slate-600 dark:text-slate-400 tabular-nums">- R$ {financialStatement.operationalExpense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm sm:text-xl font-black text-slate-600 dark:text-slate-400 tabular-nums">- R$ {financialStatement.operationalExpense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
-            <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest">Dívidas</span>
-                <CreditCard size={14} className="text-indigo-500" />
+            <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-[9px] sm:text-[10px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest">Dívidas</span>
+                <CreditCard size={12} className="text-indigo-500 sm:w-[14px] sm:h-[14px]" />
               </div>
-              <p className="text-xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">- R$ {financialStatement.debtService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm sm:text-xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">- R$ {financialStatement.debtService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
-            <div className={`p-4 rounded-2xl border ${financialStatement.netResult >= 0 ? 'bg-slate-900 dark:bg-slate-800 text-white border-slate-800' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 border-rose-200'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Resultado</span>
-                <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Margem: {financialStatement.margin.toFixed(1)}%</span>
+            <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border ${financialStatement.netResult >= 0 ? 'bg-slate-900 dark:bg-slate-800 text-white border-slate-800' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 border-rose-200'}`}>
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest opacity-70">Resultado</span>
+                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-70">Mg: {financialStatement.margin.toFixed(1)}%</span>
               </div>
-              <p className="text-xl font-black tabular-nums">R$ {financialStatement.netResult.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm sm:text-xl font-black tabular-nums">R$ {financialStatement.netResult.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
         </div>
       </motion.div>
 
       {/* Recent Transactions Table */}
-      <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
-        <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+      <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+        <div className="p-4 sm:p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-500"><FileText size={20} /></div>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-500"><FileText size={18} className="sm:w-[20px] sm:h-[20px]" /></div>
             <div>
-              <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Extrato de Movimentações</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Detalhamento do período</p>
+              <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Extrato de Movimentações</h3>
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest">Detalhamento do período</p>
             </div>
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[600px] sm:min-w-0">
              <thead className="bg-slate-50 dark:bg-slate-950/50">
-                <tr className="text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                   <th className="px-8 py-4">Data</th>
-                   <th className="px-8 py-4">Descrição</th>
-                   <th className="px-8 py-4">Categoria</th>
-                   <th className="px-8 py-4 text-center">Status</th>
-                   <th className="px-8 py-4 text-right">Valor</th>
-                   <th className="px-8 py-4 text-right">Ações</th>
+                <tr className="text-left text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                   <th className="px-4 sm:px-8 py-3 sm:py-4">Data</th>
+                   <th className="px-4 sm:px-8 py-3 sm:py-4">Descrição</th>
+                   <th className="px-4 sm:px-8 py-3 sm:py-4">Categoria</th>
+                   <th className="px-4 sm:px-8 py-3 sm:py-4 text-center">Status</th>
+                   <th className="px-4 sm:px-8 py-3 sm:py-4 text-right">Valor</th>
+                   <th className="px-4 sm:px-8 py-3 sm:py-4 text-right">Ações</th>
                 </tr>
              </thead>
              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {viewData.transactions.length === 0 ? (
-                  <tr><td colSpan={6} className="px-8 py-12 text-center text-slate-400 text-xs font-bold italic">Nenhum lançamento encontrado para este período.</td></tr>
+                  <tr><td colSpan={6} className="px-4 sm:px-8 py-10 sm:py-12 text-center text-slate-400 text-xs font-bold italic">Nenhum lançamento encontrado para este período.</td></tr>
                 ) : (
                    viewData.transactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(t => (
-                      <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors group">
-                         <td className="px-8 py-4"><span className="text-xs font-bold text-slate-600 dark:text-slate-400">{new Date(t.date).toLocaleDateString('pt-BR')}</span></td>
-                         <td className="px-8 py-4">
+                      <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors group text-xs">
+                         <td className="px-4 sm:px-8 py-3 sm:py-4"><span className="text-xs font-bold text-slate-600 dark:text-slate-400">{new Date(t.date).toLocaleDateString('pt-BR')}</span></td>
+                         <td className="px-4 sm:px-8 py-3 sm:py-4">
                             <div className="flex flex-col gap-1">
-                               <div className="flex items-center gap-2">
-                                  {t.type === 'INCOME' ? <ArrowUpCircle size={14} className="text-emerald-500" /> : <ArrowDownCircle size={14} className="text-rose-500" />}
+                               <div className="flex items-center gap-1.5">
+                                  {t.type === 'INCOME' ? <ArrowUpCircle size={12} className="text-emerald-500" /> : <ArrowDownCircle size={12} className="text-rose-500" />}
                                   <span className="text-xs font-bold text-slate-800 dark:text-white">{t.description}</span>
                                </div>
-                               <div className="flex items-center gap-2">
+                               <div className="flex items-center gap-1.5">
                                   {t.is_recurring && <span className="text-[8px] font-black uppercase text-indigo-500 flex items-center gap-0.5"><Clock size={8}/> Recorrente</span>}
                                   {t.installment_total && t.installment_total > 1 && <span className="text-[8px] font-bold text-slate-400">Parcela {t.installment_current}/{t.installment_total}</span>}
                                </div>
                             </div>
                          </td>
-                         <td className="px-8 py-4"><span className="px-2 py-1 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">{t.category}</span></td>
-                         <td className="px-8 py-4 text-center">{t.status === 'PAID' ? <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full"><CheckCircle2 size={10}/> Pago</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full"><Clock size={10}/> Pendente</span>}</td>
-                         <td className={`px-8 py-4 text-right font-black text-xs ${t.type === 'INCOME' ? 'text-emerald-600' : 'text-slate-800 dark:text-white'}`}>{t.type === 'EXPENSE' ? '-' : '+'} R$ {Number(t.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-                         <td className="px-8 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <td className="px-4 sm:px-8 py-3 sm:py-4"><span className="px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">{t.category}</span></td>
+                         <td className="px-4 sm:px-8 py-3 sm:py-4 text-center">{t.status === 'PAID' ? <span className="inline-flex items-center gap-0.5 sm:gap-1 text-[8px] sm:text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full"><CheckCircle2 size={9}/> Pago</span> : <span className="inline-flex items-center gap-0.5 sm:gap-1 text-[8px] sm:text-[9px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full"><Clock size={9}/> Pendente</span>}</td>
+                         <td className={`px-4 sm:px-8 py-3 sm:py-4 text-right font-black text-xs ${t.type === 'INCOME' ? 'text-emerald-600' : 'text-slate-800 dark:text-white'}`}>{t.type === 'EXPENSE' ? '-' : '+'} R$ {Number(t.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                         <td className="px-4 sm:px-8 py-3 sm:py-4 text-right">
+                            <div className="flex items-center justify-end gap-0.5 sm:gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                <button 
                                  onClick={() => {
                                    setFormData({
@@ -773,9 +788,9 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                                    setEditingTransaction(t);
                                    setShowAddModal(true);
                                  }}
-                                 className="p-2 rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                 className="p-1 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                                >
-                                 <ArrowUpRight size={16} />
+                                 <ArrowUpRight size={14} className="sm:w-[16px] sm:h-[16px]" />
                                </button>
                                <button 
                                  onClick={() => {
@@ -787,13 +802,13 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
                                    const body = encodeURIComponent(`Olá,\n\nGostaríamos de lembrar sobre o pagamento de R$ ${t.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})} referente a ${t.description}, com vencimento em ${new Date(t.due_date || t.date).toLocaleDateString('pt-BR')}.\n\nAtenciosamente,\nEquipe Financeira`);
                                    window.open(`mailto:${t.contact_email}?subject=${subject}&body=${body}`);
                                  }}
-                                 className="p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                                 className="p-1 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                                  title="Enviar Cobrança"
                                >
-                                 <Bell size={16} />
+                                 <Bell size={14} className="sm:w-[16px] sm:h-[16px]" />
                                </button>
-                               <button onClick={() => handleDelete(t.id)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
-                                 <ArrowDownRight size={16} />
+                               <button onClick={() => handleDelete(t.id)} className="p-1 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors">
+                                 <ArrowDownRight size={14} className="sm:w-[16px] sm:h-[16px]" />
                                </button>
                             </div>
                          </td>

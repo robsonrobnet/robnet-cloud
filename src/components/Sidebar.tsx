@@ -124,6 +124,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
         reqLabel: 'Intermed.'
     },
     { 
+        id: AppView.KNOWLEDGE_BASE, 
+        label: "Base Conhecimento", 
+        icon: BookOpen, 
+        allowed: true,
+        reqLabel: 'Free'
+    },
+    { 
         id: AppView.TUTORIAL, 
         label: "Tutorial", 
         icon: BookOpen, 
@@ -142,8 +149,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
   // Filter menu based on enabled modules if company data is available
   const filteredMenu = menu.filter(item => {
     if (!company?.enabled_modules) return true;
-    // Always allow SETTINGS, TUTORIAL, MASTER_CONFIG, DASHBOARD for basic navigation
-    if ([AppView.SETTINGS, AppView.TUTORIAL, AppView.DASHBOARD].includes(item.id)) return true;
+    // Always allow SETTINGS, TUTORIAL, MASTER_CONFIG, DASHBOARD, KNOWLEDGE_BASE for basic navigation
+    if ([AppView.SETTINGS, AppView.TUTORIAL, AppView.DASHBOARD, AppView.KNOWLEDGE_BASE].includes(item.id)) return true;
     if (item.id === AppView.MASTER_CONFIG) return currentUser.is_master || currentUser.role === 'ADMIN';
     
     return company.enabled_modules.includes(item.id);
@@ -164,8 +171,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
     <>
       {isOpen && <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 lg:hidden" onClick={() => setIsOpen(false)} />}
       <aside className={`fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50 transform transition-all duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex flex-col h-full p-6">
-          <div className="flex items-center gap-3 mb-8">
+        <div className="flex flex-col h-full max-h-full overflow-hidden p-6">
+          <div className="flex items-center gap-3 mb-8 flex-shrink-0">
             <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-500/20">F</div>
             <div>
                 <span className="font-black text-lg tracking-tighter text-slate-900 dark:text-white block">FinanAI <span className="text-indigo-500">OS</span></span>
@@ -177,7 +184,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
             </div>
           </div>
           
-          <div className="flex-1 space-y-1">
+          <div className="flex-1 space-y-1 overflow-y-auto pr-1 min-h-0 custom-scrollbar">
             <p className="text-[10px] font-black uppercase text-slate-400 mb-2 px-2 tracking-widest">Módulos</p>
             {filteredMenu.map(item => (
               <button 
@@ -216,7 +223,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, isOpen, setIsOp
             )}
           </div>
 
-          <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-800">
+          <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-800 flex-shrink-0">
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 mb-3 border border-slate-100 dark:border-slate-700">
                 <div className="flex items-center gap-2 mb-1">
                     <Crown size={14} className={accessLevel.isTrial ? "text-emerald-500 animate-pulse" : "text-indigo-500"} />

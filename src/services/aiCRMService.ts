@@ -1,16 +1,12 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateChatResponse } from "./geminiService";
 import { CRMLead, CRMActivity, CRMContact } from "../types";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export const aiCRMService = {
   /**
-   * Generates a lead score and strategic insights using Gemini
+   * Generates a lead score and strategic insights using proxied, resilient AI calls
    */
   async analyzeLead(lead: CRMLead, activities: CRMActivity[], contact?: CRMContact) {
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
       const prompt = `
         Analise o seguinte Lead de CRM e forneça um Score (0-100) e um Insight estratégico curto.
         
@@ -31,15 +27,13 @@ export const aiCRMService = {
         }
       `;
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const text = await generateChatResponse(prompt);
       
-      if (!text || text === "undefined") {
-        throw new Error("AI returned empty or invalid response");
+      if (!text || text === "undefined" || text.startsWith("Erro ao")) {
+        throw new Error("AI returned empty, invalid, or error response: " + text);
       }
       
-      // Cleanup cleanup (sometimes AI adds markdown blocks)
+      // Cleanup (sometimes AI adds markdown blocks)
       const cleanJson = text.replace(/```json|```/g, "").trim();
       
       if (!cleanJson || cleanJson === "undefined") {

@@ -2,7 +2,7 @@
 // services/financialService.ts
 
 import { supabase, formatSupabaseError } from '../lib/supabase';
-import { Transaction, Category, ChatMessage, FinancialSummary, User, CRMLeadStatus, CRMActivity, AppView } from '../types';
+import { Transaction, Category, ChatMessage, FinancialSummary, User, CRMLeadStatus, CRMActivity, AppView, CRMLead } from '../types';
 
 export const FinancialService = {
   /**
@@ -31,7 +31,7 @@ export const FinancialService = {
   /**
    * Fetch transactions with optimized filtering
    */
-  async getTransactions(companyId: string, userId: string, role: string) {
+  async getTransactions(companyId: string, userId: string, role: string, scope?: string) {
     let query = supabase
       .from('transactions')
       .select('*')
@@ -44,6 +44,10 @@ export const FinancialService = {
 
     if (role === 'USER') {
       query = query.eq('user_id', userId);
+    }
+
+    if (scope) {
+      query = query.eq('scope', scope);
     }
 
     const { data, error } = await query;
@@ -528,13 +532,18 @@ export const FinancialService = {
   /**
    * CRM Methods
    */
-  async getCRMLeads(companyId: string) {
-    const { data, error } = await supabase
+  async getCRMLeads(companyId: string, scope?: string) {
+    let query = supabase
       .from('crm_leads')
       .select('*, contact:crm_contacts(*)')
       .eq('company_id', companyId)
       .order('updated_at', { ascending: false });
     
+    if (scope) {
+      query = query.eq('scope', scope);
+    }
+
+    const { data, error } = await query;
     if (error) {
        console.warn("CRM table might not be ready:", error.message);
        return [];
@@ -546,6 +555,17 @@ export const FinancialService = {
     const { data, error } = await supabase
       .from('crm_leads')
       .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', leadId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateLead(leadId: string, updates: Partial<CRMLead>) {
+    const { data, error } = await supabase
+      .from('crm_leads')
+      .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', leadId)
       .select()
       .single();
