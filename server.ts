@@ -34,7 +34,8 @@ app.get("/api/health", (req, res) => {
 
 // --- SUPABASE CLIENT (Backend) ---
 const DEFAULT_SUPABASE_URL = 'https://uifexroywtnmelgxfbxc.supabase.co';
-const supabaseUrl = (process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL).trim().replace(/\/$/, "");
+const supabaseUrlRaw = process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const supabaseUrl = supabaseUrlRaw.trim().replace(/\/$/, "").replace(/\/rest\/v1\/?$/i, "");
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
 
@@ -67,11 +68,36 @@ async function ensureInfrastructure() {
   }
 }
 
+// Cache for dynamically created supabase clients to avoid warnings & performance overhead
+const dynamicSupabaseClients: Record<string, any> = {};
+
+function getRequestSupabaseClient(req?: Request) {
+  if (req) {
+    const customUrl = req.headers['x-supabase-url'] as string || req.headers['X-Supabase-Url'] as string;
+    const customKey = req.headers['x-supabase-key'] as string || req.headers['X-Supabase-Key'] as string;
+    
+    if (customUrl && customKey) {
+      const cleanUrl = customUrl.trim().replace(/\/$/, "").replace(/\/rest\/v1\/?$/i, "");
+      const cacheKey = `${cleanUrl}_${customKey}`;
+      if (!dynamicSupabaseClients[cacheKey]) {
+        dynamicSupabaseClients[cacheKey] = createClient(cleanUrl, customKey, {
+          auth: {
+            persistSession: false
+          }
+        });
+      }
+      return dynamicSupabaseClients[cacheKey];
+    }
+  }
+  return supabase;
+}
+
 ensureInfrastructure();
 
-async function getSecureConfigFromDbOnly(key: string): Promise<string | null> {
+async function getSecureConfigFromDbOnly(key: string, req?: Request): Promise<string | null> {
   try {
-    const { data, error } = await supabase
+    const client = getRequestSupabaseClient(req);
+    const { data, error } = await client
       .from('master_config')
       .select('value')
       .eq('key', key)
@@ -84,9 +110,9 @@ async function getSecureConfigFromDbOnly(key: string): Promise<string | null> {
   return null;
 }
 
-async function getSecureConfig(key: string): Promise<string | null> {
+async function getSecureConfig(key: string, req?: Request): Promise<string | null> {
   // 1. Try Database (master_config table) first to prefer user's configured value
-  const dbVal = await getSecureConfigFromDbOnly(key);
+  const dbVal = await getSecureConfigFromDbOnly(key, req);
   if (dbVal) return dbVal;
 
   // 2. Try Environment Variable as fallback
@@ -167,8 +193,8 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
     let aiProvider = provider || 'GEMINI';
     
     // Fetch custom configs
-    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY');
-    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
+    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
     
     // System env keys
     const envGeminiKey = process.env.GEMINI_API_KEY;
@@ -255,8 +281,8 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
 app.post("/api/ai/chat", async (req: Request, res: Response) => {
   const { prompt, history, modelName } = req.body;
   try {
-    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY');
-    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
+    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
     const envGeminiKey = process.env.GEMINI_API_KEY;
     const envOpenaiKey = process.env.OPENAI_API_KEY;
 
@@ -317,7 +343,7 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
   
   try {
     if (provider === 'OPENAI') {
-      let key = apiKey || await getSecureConfigFromDbOnly('OPENAI_API_KEY');
+      let key = apiKey || await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
       let isFallback = false;
       if (!key) {
         key = process.env.OPENAI_API_KEY;
@@ -340,7 +366,7 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
         throw err;
       }
     } else {
-      let key = apiKey || await getSecureConfigFromDbOnly('GEMINI_API_KEY');
+      let key = apiKey || await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
       let isFallback = false;
       if (!key) {
         key = process.env.GEMINI_API_KEY;
@@ -362,12 +388,21 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
             return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
           } catch (envErr) {}
         }
-        throw err;
+        let friendlyMessage = err.message || "Erro de validação desconhecido";
+        if (friendlyMessage.includes("API key not valid") || friendlyMessage.includes("API_KEY_INVALID") || friendlyMessage.includes("400")) {
+          friendlyMessage = "Chave API do Gemini inválida ou não autorizada. Verifique suas credenciais.";
+        }
+        res.status(400).json({ error: friendlyMessage });
+        return;
       }
     }
   } catch (error: any) {
     console.error("[AI Test Error]:", error);
-    res.status(500).json({ error: error.message });
+    let errorMsg = error.message;
+    if (errorMsg.includes("API key not valid") || errorMsg.includes("API_KEY_INVALID")) {
+      errorMsg = "Chave API do Gemini inválida ou não autorizada. Verifique suas credenciais.";
+    }
+    res.status(500).json({ error: errorMsg });
   }
 });
 
@@ -377,11 +412,12 @@ app.get("/api/admin/config", async (req: Request, res: Response) => {
   if (masterPass !== '2298R@b') return res.status(401).json({ error: "Acesso Negado" });
 
   try {
-    const { data, error } = await supabase.from('master_config').select('*');
+    const client = getRequestSupabaseClient(req);
+    const { data, error } = await client.from('master_config').select('*');
     if (error) throw error;
     
     // Mask values for security
-    const masked = data.map(i => ({
+    const masked = data.map((i: any) => ({
       key: i.key,
       value: i.value ? `${i.value.substring(0, 4)}...${i.value.substring(i.value.length - 4)}` : ""
     }));
@@ -397,7 +433,8 @@ app.post("/api/admin/config", async (req: Request, res: Response) => {
   if (pass !== '2298R@b') return res.status(401).json({ error: "Acesso Negado" });
 
   try {
-    const { error } = await supabase
+    const client = getRequestSupabaseClient(req);
+    const { error } = await client
       .from('master_config')
       .upsert(configs.map((c: any) => ({
         key: c.key,
@@ -426,8 +463,10 @@ app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
   try {
     console.log(`[Backend] Sincronizando infraestrutura Master (Bypass RLS: ${isUsingServiceRole})...`);
     
+    const client = getRequestSupabaseClient(req);
+
     // 1. Check if company exists first to avoid unnecessary RLS-blocked upserts
-    const { data: existingComp, error: checkError } = await supabase
+    const { data: existingComp, error: checkError } = await client
       .from('companies')
       .select('id')
       .eq('id', SYSTEM_COMPANY_ID)
@@ -435,11 +474,11 @@ app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
 
     if (checkError) {
        console.warn("[Backend] Error checking company existence:", checkError);
-    }
+     }
 
     if (!existingComp) {
       console.log("[Backend] Criando Empresa Master (System)...");
-      const { error: compError } = await supabase.from('companies').upsert({
+      const { error: compError } = await client.from('companies').upsert({
         id: SYSTEM_COMPANY_ID,
         name: 'FinanAI System',
         plan: 'ENTERPRISE'
@@ -454,7 +493,7 @@ app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
     }
 
     // 2. Create user (or update)
-    const { error: userError } = await supabase.from('users').upsert({
+    const { error: userError } = await client.from('users').upsert({
       username: 'Master',
       password: MASTER_PASSWORD,
       role: 'MANAGER',
@@ -486,6 +525,61 @@ app.post("/api/admin/sync-master", async (req: Request, res: Response) => {
       code: error.code || '500',
       hint: !isUsingServiceRole ? "A chave 'SUPABASE_SERVICE_ROLE_KEY' não foi detectada. Adicione-a nas variáveis de ambiente para ignorar as regras de RLS." : "Verifique as políticas RLS no console do Supabase."
     });
+  }
+});
+
+app.post("/api/admin/restore-categories", async (req: Request, res: Response) => {
+  const { company_id } = req.body;
+  if (!company_id) {
+    return res.status(400).json({ error: "O parâmetro company_id é obrigatório." });
+  }
+
+  try {
+    const client = getRequestSupabaseClient(req);
+    const defaultCats = [
+      // Business / Empresarial
+      { company_id, name: 'Vendas & Serviços', color: '#10b981', icon: 'Wallet' },
+      { company_id, name: 'Custos Operacionais', color: '#ef4444', icon: 'TrendingDown' },
+      { company_id, name: 'Pessoal & Salários', color: '#ec4899', icon: 'Users' },
+      { company_id, name: 'Marketing & Vendas', color: '#8b5cf6', icon: 'Zap' },
+      { company_id, name: 'Impostos & Tributos', color: '#f59e0b', icon: 'FileText' },
+      { company_id, name: 'Investimentos & Expansão', color: '#3b82f6', icon: 'TrendingUp' },
+      // Personal / Pessoal
+      { company_id, name: 'Alimentação', color: '#f97316', icon: 'Utensils' },
+      { company_id, name: 'Transporte & Lazer', color: '#06b6d4', icon: 'Car' },
+      { company_id, name: 'Moradia & Contas', color: '#14b8a6', icon: 'Home' },
+      { company_id, name: 'Saúde & Bem-Estar', color: '#d946ef', icon: 'Activity' },
+      { company_id, name: 'Educação', color: '#6366f1', icon: 'BookOpen' }
+    ];
+
+    // Check existing names to avoid duplicates
+    const { data: existing, error: selectError } = await client
+      .from('categories')
+      .select('name')
+      .eq('company_id', company_id);
+
+    if (selectError) {
+      console.error("[Backend] Error select categories:", selectError);
+      throw selectError;
+    }
+
+    const existingNames = new Set((existing || []).map((e: any) => e.name.toLowerCase().trim()));
+    const newCats = defaultCats.filter(c => !existingNames.has(c.name.toLowerCase().trim()));
+
+    if (newCats.length === 0) {
+      return res.json({ success: true, count: 0, message: "Todas as categorias padrão já estão registradas!" });
+    }
+
+    const { error: insertError } = await client.from('categories').insert(newCats);
+    if (insertError) {
+      console.error("[Backend] Error inserting default categories:", insertError);
+      throw insertError;
+    }
+
+    res.json({ success: true, count: newCats.length });
+  } catch (err: any) {
+    console.error("[Backend] Restore Default Categories Error:", err);
+    res.status(500).json({ error: err.message || "Erro interno do servidor" });
   }
 });
 

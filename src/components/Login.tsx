@@ -160,10 +160,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
         await supabase.from('companies').update({ owner_id: userData.id }).eq('id', compData.id);
 
         const defaultCats = [
-          { company_id: compData.id, name: 'Vendas / Serviços', color: '#10b981', icon: 'Wallet' },
+          // Business / Empresarial
+          { company_id: compData.id, name: 'Vendas & Serviços', color: '#10b981', icon: 'Wallet' },
           { company_id: compData.id, name: 'Custos Operacionais', color: '#ef4444', icon: 'TrendingDown' },
           { company_id: compData.id, name: 'Pessoal & Salários', color: '#ec4899', icon: 'Users' },
-          { company_id: compData.id, name: 'Marketing', color: '#8b5cf6', icon: 'Zap' }
+          { company_id: compData.id, name: 'Marketing & Vendas', color: '#8b5cf6', icon: 'Zap' },
+          { company_id: compData.id, name: 'Impostos & Tributos', color: '#f59e0b', icon: 'FileText' },
+          { company_id: compData.id, name: 'Investimentos & Expansão', color: '#3b82f6', icon: 'TrendingUp' },
+          // Personal / Pessoal
+          { company_id: compData.id, name: 'Alimentação', color: '#f97316', icon: 'Utensils' },
+          { company_id: compData.id, name: 'Transporte & Lazer', color: '#06b6d4', icon: 'Car' },
+          { company_id: compData.id, name: 'Moradia & Contas', color: '#14b8a6', icon: 'Home' },
+          { company_id: compData.id, name: 'Saúde & Bem-Estar', color: '#d946ef', icon: 'Activity' },
+          { company_id: compData.id, name: 'Educação', color: '#6366f1', icon: 'BookOpen' }
         ];
         await supabase.from('categories').insert(defaultCats);
 

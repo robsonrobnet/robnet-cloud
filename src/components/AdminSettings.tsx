@@ -538,6 +538,38 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
     }
   };
 
+  const handleRestoreDefaultCategories = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/admin/restore-categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: currentUser.company_id })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro na resposta do servidor");
+      }
+
+      const result = await response.json();
+
+      if (result.count === 0) {
+        setSuccessMessage("Todas as categorias padrão já estão registradas no seu dicionário!");
+      } else {
+        setSuccessMessage(`Sucesso! Unificando o dicionário, ${result.count} novas categorias básicas (pessoais & empresariais) foram integradas.`);
+      }
+      setShowSuccessModal(true);
+      fetchAdminData();
+      if (fetchData) fetchData();
+    } catch (e: any) {
+      setSuccessMessage("Erro ao integrar categorias padrão: " + e.message);
+      setShowSuccessModal(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // --- USER ACTIONS ---
 
   const handleSaveUser = async (e: React.FormEvent) => {
@@ -1063,7 +1095,10 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                         <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-3"><Tags size={20} className="text-indigo-500" /> Dicionário de Categorias</h3>
                         <p className="text-xs text-slate-400 font-bold">Gerencie os marcadores de transação</p>
                     </div>
-                    <button onClick={() => { setEditingCategory({}); setShowCategoryModal(true); }} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl hover:scale-105 transition-all"><Plus size={16}/> Nova Categoria</button>
+                    <div className="flex gap-2 items-center flex-wrap">
+                        <button onClick={handleRestoreDefaultCategories} className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-slate-200 dark:border-slate-700 shadow-sm transition-all animate-in fade-in duration-300"><RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Carregar Padrões</button>
+                        <button onClick={() => { setEditingCategory({}); setShowCategoryModal(true); }} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl hover:scale-105 transition-all animate-in fade-in duration-300"><Plus size={16}/> Nova Categoria</button>
+                    </div>
                  </div>
                  
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

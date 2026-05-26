@@ -425,14 +425,20 @@ ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 -- DEFININDO POLÍTICAS DE ACESSO RELATIVAS À EMPRESA (Multi-tenancy)
 -- Isso garante que a aplicação isole os dados por empresa.
 
+-- Função auxiliar SECURITY DEFINER para buscar a empresa do usuário autenticado sem causar recursão na tabela de usuários.
+CREATE OR REPLACE FUNCTION get_current_user_company_id()
+RETURNS UUID AS $$
+  SELECT company_id FROM users WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER;
+
 -- 1. COMPANIES: Usuários vêem apenas a empresa a qual pertencem
 DROP POLICY IF EXISTS "Public Full Access" ON companies;
 DROP POLICY IF EXISTS "Users see own company" ON companies;
 CREATE POLICY "Users see own company" ON companies 
 FOR ALL USING (
-  id = (SELECT company_id FROM users WHERE id = auth.uid())
+  id = get_current_user_company_id()
 ) WITH CHECK (
-  id = (SELECT company_id FROM users WHERE id = auth.uid())
+  id = get_current_user_company_id()
 );
 
 -- 2. USERS: Usuários vêem apenas colegas da mesma empresa e a si mesmos
@@ -440,9 +446,9 @@ DROP POLICY IF EXISTS "Public Full Access" ON users;
 DROP POLICY IF EXISTS "Users see company members" ON users;
 CREATE POLICY "Users see company members" ON users 
 FOR ALL USING (
-  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+  company_id = get_current_user_company_id()
 ) WITH CHECK (
-  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+  company_id = get_current_user_company_id()
 );
 
 -- 3. TRANSACTIONS & MODULES: Filtro por company_id
@@ -452,19 +458,56 @@ DECLARE
     all_tables TEXT[] := ARRAY[
         'categories', 'transactions', 'nfse_clients', 'nfse_services', 
         'nfse_rps', 'nfse_configs', 'crm_contacts', 'crm_leads', 
-        'crm_activities', 'crm_automations', 'products', 'product_variations', 
-        'shop_customers', 'suppliers', 'price_tables', 'sales_orders', 'order_items'
+        'crm_activities', 'crm_automations', 'products', 
+        'shop_customers', 'suppliers', 'price_tables', 'sales_orders'
     ];
 BEGIN
     FOR t IN SELECT unnest(all_tables) LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Public Full Access" ON %I', t);
         EXECUTE format('DROP POLICY IF EXISTS "Multi-tenant Access" ON %I', t);
-        EXECUTE format('CREATE POLICY "Multi-tenant Access" ON %I FOR ALL USING (company_id = (SELECT company_id FROM users WHERE id = auth.uid())) WITH CHECK (company_id = (SELECT company_id FROM users WHERE id = auth.uid()))', t);
+        EXECUTE format('CREATE POLICY "Multi-tenant Access" ON %I FOR ALL USING (company_id = get_current_user_company_id()) WITH CHECK (company_id = get_current_user_company_id())', t);
         
         -- Garante permissões explicitas para as roles
         EXECUTE format('GRANT ALL ON TABLE %I TO anon, authenticated, service_role', t);
     END LOOP;
 END $$;
+
+-- 4. POLÍTICAS ESPECÍFICAS PARA TABELAS DEPENDENTES (Variantes de Produtos e Itens de Pedidos)
+-- Estas tabelas não possuem a coluna company_id diretamente, então o acesso é verificado por meio da tabela pai.
+
+DROP POLICY IF EXISTS "Public Full Access" ON product_variations;
+DROP POLICY IF EXISTS "Multi-tenant Access" ON product_variations;
+CREATE POLICY "Multi-tenant Access" ON product_variations FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM products
+    WHERE products.id = product_variations.product_id
+      AND products.company_id = get_current_user_company_id()
+  )
+) WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM products
+    WHERE products.id = product_variations.product_id
+      AND products.company_id = get_current_user_company_id()
+  )
+);
+GRANT ALL ON TABLE product_variations TO anon, authenticated, service_role;
+
+DROP POLICY IF EXISTS "Public Full Access" ON order_items;
+DROP POLICY IF EXISTS "Multi-tenant Access" ON order_items;
+CREATE POLICY "Multi-tenant Access" ON order_items FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM sales_orders
+    WHERE sales_orders.id = order_items.order_id
+      AND sales_orders.company_id = get_current_user_company_id()
+  )
+) WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM sales_orders
+    WHERE sales_orders.id = order_items.order_id
+      AND sales_orders.company_id = get_current_user_company_id()
+  )
+);
+GRANT ALL ON TABLE order_items TO anon, authenticated, service_role;
 
 -- Fallback para o usuário master (ele deve ter acesso a tudo se não tiver company_id ou via service_role)
 -- Mas para segurança de auditoria, mantemos o isolamento acima.
@@ -508,7 +551,7 @@ DROP POLICY IF EXISTS "Users can read global or company knowledge base" ON knowl
 CREATE POLICY "Users can read global or company knowledge base" ON knowledge_base
 FOR SELECT USING (
   company_id IS NULL OR 
-  company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+  company_id = get_current_user_company_id()
 );
 
 -- Policy to allow Managers/Masters to edit knowledge base
