@@ -119,11 +119,29 @@ async function getSecureConfigFromDbOnly(key: string, req?: Request): Promise<st
 }
 
 async function getSecureConfig(key: string, req?: Request): Promise<string | null> {
-  // 1. Try Database (master_config table) first to prefer user's configured value
+  // 1. Try Headers first (best for highly secure, local-fallback setups like Vercel with custom databases)
+  if (req) {
+    const headerMapping: Record<string, string> = {
+      'GEMINI_API_KEY': 'x-gemini-key',
+      'OPENAI_API_KEY': 'x-openai-key',
+      'STRIPE_SECRET_KEY': 'x-stripe-key',
+      'EVOLUTION_API_KEY': 'x-evolution-key',
+      'EVOLUTION_URL': 'x-evolution-url'
+    };
+    const headerName = headerMapping[key];
+    if (headerName) {
+      const headerVal = req.headers[headerName] as string || req.headers[headerName.toLowerCase()] as string;
+      if (headerVal && headerVal.trim() && !headerVal.includes('...')) {
+         return headerVal.trim();
+      }
+    }
+  }
+
+  // 2. Try Database (master_config table)
   const dbVal = await getSecureConfigFromDbOnly(key, req);
   if (dbVal) return dbVal;
 
-  // 2. Try Environment Variable as fallback
+  // 3. Try Environment Variable as fallback
   const envVal = process.env[key];
   if (envVal) return envVal;
 
@@ -200,18 +218,13 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
   try {
     let aiProvider = provider || 'GEMINI';
     
-    // Fetch custom configs
-    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
-    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
-    
-    // System env keys
-    const envGeminiKey = process.env.GEMINI_API_KEY;
-    const envOpenaiKey = process.env.OPENAI_API_KEY;
+    // Fetch configs securely (prioritizing headers, then DB, then system env)
+    const geminiKey = await getSecureConfig('GEMINI_API_KEY', req);
+    const openaiKey = await getSecureConfig('OPENAI_API_KEY', req);
 
     if (aiProvider === 'OPENAI') {
-      const apiKey = customOpenaiKey || envOpenaiKey;
-      if (!apiKey) {
-        if (customGeminiKey || envGeminiKey) {
+      if (!openaiKey) {
+        if (geminiKey) {
           console.log("[AI Proxy] OpenAI key missing, falling back to Gemini.");
           aiProvider = 'GEMINI';
         } else {
@@ -221,55 +234,39 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
     }
 
     if (aiProvider === 'OPENAI') {
-      const apiKey = (customOpenaiKey || envOpenaiKey)!;
       try {
-        const text = await callOpenAI(apiKey, modelName || "gpt-4o", systemPrompt, input, attachment, chatHistory);
+        const text = await callOpenAI(openaiKey!, modelName || "gpt-4o", systemPrompt, input, attachment, chatHistory);
         return res.json({ text });
       } catch (err: any) {
         console.error("[AI Proxy - OpenAI Error, trying Gemini fallback]:", err);
-        const fallbackGeminiKey = customGeminiKey || envGeminiKey;
-        if (fallbackGeminiKey) {
-          const text = await callGemini(fallbackGeminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
+        if (geminiKey) {
+          const text = await callGemini(geminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
           return res.json({ text });
         }
         throw err;
       }
     } else {
       // GEMINI PROVIDER
-      const preferredKey = customGeminiKey || envGeminiKey;
-      if (!preferredKey) {
-        const fallbackOpenaiKey = customOpenaiKey || envOpenaiKey;
-        if (fallbackOpenaiKey) {
+      if (!geminiKey) {
+        if (openaiKey) {
           console.log("[AI Proxy] Gemini key missing, falling back to OpenAI.");
-          const text = await callOpenAI(fallbackOpenaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
+          const text = await callOpenAI(openaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
           return res.json({ text });
         }
         throw new Error("Nenhuma chave de API (Gemini ou OpenAI) configurada no servidor.");
       }
 
       try {
-        const text = await callGemini(preferredKey, modelName, systemPrompt, input, attachment, chatHistory);
+        const text = await callGemini(geminiKey, modelName, systemPrompt, input, attachment, chatHistory);
         return res.json({ text });
       } catch (err: any) {
         console.error("[AI Proxy - Preferred Gemini Error]:", err);
         
-        // If the custom key failed, try system env keys as a free fallback
-        if (customGeminiKey && envGeminiKey && preferredKey !== envGeminiKey) {
-          try {
-            console.log("[AI Proxy] Trying system fallback for Gemini...");
-            const text = await callGemini(envGeminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
-            return res.json({ text });
-          } catch (envErr) {
-            console.error("[AI Proxy - Fallback Gemini Error]:", envErr);
-          }
-        }
-
-        // If Gemini is still failing, attempt OpenAI fallback if configured
-        const fallbackOpenaiKey = customOpenaiKey || envOpenaiKey;
-        if (fallbackOpenaiKey) {
+        // If Gemini failed, attempt OpenAI fallback if configured
+        if (openaiKey) {
           try {
             console.log("[AI Proxy] Gemini failed, trying OpenAI fallback...");
-            const text = await callOpenAI(fallbackOpenaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
+            const text = await callOpenAI(openaiKey, "gpt-4o", systemPrompt, input, attachment, chatHistory);
             return res.json({ text });
           } catch (openaiErr) {
             console.error("[AI Proxy - Fallback OpenAI Error]:", openaiErr);
@@ -289,16 +286,12 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
 app.post("/api/ai/chat", async (req: Request, res: Response) => {
   const { prompt, history, modelName } = req.body;
   try {
-    const customGeminiKey = await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
-    const customOpenaiKey = await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
-    const envGeminiKey = process.env.GEMINI_API_KEY;
-    const envOpenaiKey = process.env.OPENAI_API_KEY;
+    const geminiKey = await getSecureConfig('GEMINI_API_KEY', req);
+    const openaiKey = await getSecureConfig('OPENAI_API_KEY', req);
 
-    const preferredGeminiKey = customGeminiKey || envGeminiKey;
-
-    if (preferredGeminiKey) {
+    if (geminiKey) {
       try {
-        const genAI = new GoogleGenerativeAI(preferredGeminiKey);
+        const genAI = new GoogleGenerativeAI(geminiKey);
         let selectedModel = modelName || "gemini-1.5-flash";
         if (selectedModel.startsWith("gemini-3")) {
           selectedModel = "gemini-1.5-flash";
@@ -308,35 +301,20 @@ app.post("/api/ai/chat", async (req: Request, res: Response) => {
         const response = await result.response;
         return res.json({ text: response.text() });
       } catch (err: any) {
-        console.error("[Chat Proxy Preferred Gemini Error]:", err);
-        
-        // Try env fallback
-        if (customGeminiKey && envGeminiKey && preferredGeminiKey !== envGeminiKey) {
-          try {
-            const genAI = new GoogleGenerativeAI(envGeminiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            return res.json({ text: response.text() });
-          } catch (envErr) {
-            console.error("[Chat Proxy Fallback Gemini Error]:", envErr);
-          }
-        }
+        console.error("[Chat Proxy Gemini Error]:", err);
       }
     }
 
-    // OpenAI fallback
-    const preferredOpenaiKey = customOpenaiKey || envOpenaiKey;
-    if (preferredOpenaiKey) {
+    if (openaiKey) {
       try {
-        const openai = new OpenAI({ apiKey: preferredOpenaiKey });
+        const openai = new OpenAI({ apiKey: openaiKey });
         const response = await openai.chat.completions.create({
           model: "gpt-4o",
           messages: [{ role: "user", content: prompt }]
         });
         return res.json({ text: response.choices[0].message.content || "" });
       } catch (openaiErr) {
-        console.error("[Chat Proxy Fallback OpenAI Error]:", openaiErr);
+        console.error("[Chat Proxy OpenAI Error]:", openaiErr);
       }
     }
 
@@ -351,7 +329,7 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
   
   try {
     if (provider === 'OPENAI') {
-      let key = apiKey || await getSecureConfigFromDbOnly('OPENAI_API_KEY', req);
+      let key = apiKey || await getSecureConfig('OPENAI_API_KEY', req);
       let isFallback = false;
       if (!key) {
         key = process.env.OPENAI_API_KEY;
@@ -374,7 +352,7 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
         throw err;
       }
     } else {
-      let key = apiKey || await getSecureConfigFromDbOnly('GEMINI_API_KEY', req);
+      let key = apiKey || await getSecureConfig('GEMINI_API_KEY', req);
       let isFallback = false;
       if (!key) {
         key = process.env.GEMINI_API_KEY;
@@ -450,10 +428,15 @@ app.post("/api/admin/config", async (req: Request, res: Response) => {
         updated_at: new Date().toISOString()
       })), { onConflict: 'key' });
     
-    if (error) throw error;
-    res.json({ success: true });
+    if (error) {
+       console.error("[Config Persist Warning]:", error);
+       // Return 200 with dbSaved: false so the client fallback works gracefully
+       return res.json({ success: true, dbSaved: false, message: "Salvo localmente com sucesso! (Chaves de nuvem Admin de privilégio elevado indisponíveis para sincronização do banco)." });
+    }
+    res.json({ success: true, dbSaved: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error("[Config Persist Error]:", error);
+    res.json({ success: true, dbSaved: false, warning: error.message });
   }
 });
 
@@ -820,17 +803,13 @@ cron.schedule("0 8 * * *", async () => {
   }
 });
 
-// Lazy Stripe Initialization
-let stripeClient: Stripe | null = null;
-const getStripe = async () => {
-  if (!stripeClient) {
-    const key = await getSecureConfig('STRIPE_SECRET_KEY');
-    if (!key) {
-      throw new Error("STRIPE_SECRET_KEY is not defined in environment variables or database");
-    }
-    stripeClient = new Stripe(key);
+// Lazy Stripe Initialization (Per-request key retrieval prevents tenant key cross-pollution)
+const getStripe = async (req?: Request) => {
+  const key = await getSecureConfig('STRIPE_SECRET_KEY', req);
+  if (!key) {
+    throw new Error("STRIPE_SECRET_KEY is not defined in environment variables, headers, or database");
   }
-  return stripeClient;
+  return new Stripe(key);
 };
 
 // --- STRIPE API ROUTES ---
@@ -838,7 +817,7 @@ const getStripe = async () => {
 // 1. Get Balance
 app.get("/api/stripe/balance", async (req: Request, res: Response) => {
   try {
-    const stripe = await getStripe();
+    const stripe = await getStripe(req);
     const balance = await stripe.balance.retrieve();
     res.json(balance);
   } catch (error: any) {
@@ -850,7 +829,7 @@ app.get("/api/stripe/balance", async (req: Request, res: Response) => {
 app.post("/api/stripe/payment-links", async (req: Request, res: Response) => {
   try {
     const { name, amount, currency = "brl" } = req.body;
-    const stripe = await getStripe();
+    const stripe = await getStripe(req);
 
     // Create Product
     const product = await stripe.products.create({
@@ -878,7 +857,7 @@ app.post("/api/stripe/payment-links", async (req: Request, res: Response) => {
 // 3. List Recent Payments
 app.get("/api/stripe/payments", async (req: Request, res: Response) => {
   try {
-    const stripe = await getStripe();
+    const stripe = await getStripe(req);
     const payments = await stripe.paymentIntents.list({ limit: 10 });
     res.json(payments.data);
   } catch (error: any) {

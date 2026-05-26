@@ -391,6 +391,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             }
         });
 
+        let dbSaved = true;
         if (cloudConfigs.length > 0) {
             const res = await fetch("/api/admin/config", {
                 method: "POST",
@@ -398,6 +399,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                 body: JSON.stringify({ pass: '2298R@b', configs: cloudConfigs })
             });
             if (!res.ok) throw new Error("Falha ao persistir no banco de dados");
+            
+            try {
+                const resData = await res.json();
+                if (resData && resData.dbSaved === false) {
+                    dbSaved = false;
+                }
+            } catch (jsonErr) {
+                console.warn("Could not parse config response json:", jsonErr);
+            }
         }
 
         // Special case for supabase update
@@ -405,7 +415,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
             updateSupabaseConfig(credentials.supabase_url, credentials.supabase_key);
         }
 
-        alert(`Configurações de ${service.toUpperCase()} salvas localmente e sincronizadas com a nuvem.`);
+        if (dbSaved) {
+            alert(`Configurações de ${service.toUpperCase()} salvas localmente e sincronizadas com a nuvem.`);
+        } else {
+            alert(`Configurações de ${service.toUpperCase()} salvas localmente com sucesso.\n\nNota: Sincronização em nuvem pendente de chaves Admin dedicadas de privilégio elevado.`);
+        }
         
         // Trigger re-check
         checkAllServices();

@@ -2,8 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { decryptValue } from './lib/crypto';
 
-// Global Fetch Interceptor to attach custom Supabase credentials to all backend API calls
+// Global Fetch Interceptor to attach custom Supabase credentials and third-party keys to all backend API calls
 const originalFetch = window.fetch;
 window.fetch = function (input, init) {
   const urlStr = typeof input === 'string' ? input : (input && 'url' in input ? (input as any).url : '');
@@ -13,17 +14,40 @@ window.fetch = function (input, init) {
     const supabaseUrl = localStorage.getItem('finanai_db_url') || '';
     const supabaseKey = localStorage.getItem('finanai_db_key') || '';
     
+    init = init || {};
+    const headers = new Headers(init.headers || {});
+    
     if (supabaseUrl && supabaseKey) {
-      init = init || {};
-      const headers = new Headers(init.headers || {});
       if (!headers.has('x-supabase-url')) {
         headers.set('x-supabase-url', supabaseUrl);
       }
       if (!headers.has('x-supabase-key')) {
         headers.set('x-supabase-key', supabaseKey);
       }
-      init.headers = headers;
     }
+
+    // Securely attach user's local API keys for AI and Stripe to the backend request headers
+    const keysMap = {
+      'x-gemini-key': 'gemini_key',
+      'x-openai-key': 'openai_key',
+      'x-stripe-key': 'stripe_key',
+      'x-evolution-key': 'whatsapp_key',
+      'x-evolution-url': 'whatsapp_url'
+    };
+
+    Object.entries(keysMap).forEach(([headerName, localKey]) => {
+      if (!headers.has(headerName)) {
+        const encrypted = localStorage.getItem(`secure_${localKey}`);
+        if (encrypted) {
+          const decrypted = decryptValue(encrypted);
+          if (decrypted && decrypted.trim() && !decrypted.includes('...')) {
+            headers.set(headerName, decrypted.trim());
+          }
+        }
+      }
+    });
+
+    init.headers = headers;
   }
   return originalFetch.call(this, input, init);
 };
