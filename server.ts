@@ -78,6 +78,14 @@ function getRequestSupabaseClient(req?: Request) {
     
     if (customUrl && customKey) {
       const cleanUrl = customUrl.trim().replace(/\/$/, "").replace(/\/rest\/v1\/?$/i, "");
+      
+      // If the target database URL matches our application's default Supabase backend URL,
+      // return the default server-side client (which uses the SUPABASE_SERVICE_ROLE_KEY to bypass RLS).
+      // This prevents "Falha ao persistir no banco de dados" and other permission blocks on standard DBs.
+      if (cleanUrl.toLowerCase() === supabaseUrl.toLowerCase()) {
+        return supabase;
+      }
+
       const cacheKey = `${cleanUrl}_${customKey}`;
       if (!dynamicSupabaseClients[cacheKey]) {
         dynamicSupabaseClients[cacheKey] = createClient(cleanUrl, customKey, {
@@ -1447,6 +1455,11 @@ app.post("/api/crm/webhook/incoming", async (req: Request, res: Response) => {
 
 // --- VITE MIDDLEWARE ---
 async function setupVite() {
+  if (process.env.VERCEL || process.env.NOW_BUILDER) {
+    console.log("[Backend] Detected Vercel serverless environment. Skipping Vite/Static middleware setup and listener.");
+    return;
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1466,3 +1479,5 @@ async function setupVite() {
 }
 
 setupVite();
+
+export default app;
