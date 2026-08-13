@@ -328,6 +328,8 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
   const { provider, apiKey } = req.body;
   
   try {
+    const isExplicitTest = !!apiKey;
+    
     if (provider === 'OPENAI') {
       let key = apiKey || await getSecureConfig('OPENAI_API_KEY', req);
       let isFallback = false;
@@ -335,21 +337,24 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
         key = process.env.OPENAI_API_KEY;
         isFallback = true;
       }
-      if (!key) throw new Error("OpenAI API Key não configurada");
+      if (!key) {
+        return res.status(400).json({ error: "OpenAI API Key não configurada" });
+      }
       
       try {
         const openai = new OpenAI({ apiKey: key });
         await openai.models.list(); 
         res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
       } catch (err: any) {
-        if (!isFallback && process.env.OPENAI_API_KEY) {
+        // Only attempt fallback if we came via standard verify and NOT from an explicit custom key test
+        if (!isExplicitTest && !isFallback && process.env.OPENAI_API_KEY) {
           try {
             const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
             await openai.models.list();
             return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
           } catch (envErr) {}
         }
-        throw err;
+        res.status(400).json({ error: err.message || "Chave OpenAI inválida ou não autorizada" });
       }
     } else {
       let key = apiKey || await getSecureConfig('GEMINI_API_KEY', req);
@@ -358,7 +363,9 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
         key = process.env.GEMINI_API_KEY;
         isFallback = true;
       }
-      if (!key) throw new Error("Gemini API Key não configurada");
+      if (!key) {
+        return res.status(400).json({ error: "Gemini API Key não configurada" });
+      }
       
       try {
         const genAI = new GoogleGenerativeAI(key);
@@ -366,7 +373,8 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
         await model.generateContent("OK");
         res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
       } catch (err: any) {
-        if (!isFallback && process.env.GEMINI_API_KEY) {
+        // Only attempt fallback if we came via standard verify and NOT from an explicit custom key test
+        if (!isExplicitTest && !isFallback && process.env.GEMINI_API_KEY) {
           try {
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -375,20 +383,12 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
           } catch (envErr) {}
         }
         let friendlyMessage = err.message || "Erro de validação desconhecido";
-        if (friendlyMessage.includes("API key not valid") || friendlyMessage.includes("API_KEY_INVALID") || friendlyMessage.includes("400")) {
-          friendlyMessage = "Chave API do Gemini inválida ou não autorizada. Verifique suas credenciais.";
-        }
         res.status(400).json({ error: friendlyMessage });
-        return;
       }
     }
   } catch (error: any) {
-    console.error("[AI Test Error]:", error);
-    let errorMsg = error.message;
-    if (errorMsg.includes("API key not valid") || errorMsg.includes("API_KEY_INVALID")) {
-      errorMsg = "Chave API do Gemini inválida ou não autorizada. Verifique suas credenciais.";
-    }
-    res.status(500).json({ error: errorMsg });
+    // Only return 500 without printing unneeded error traceback to avoid polluting testing logs
+    res.status(500).json({ error: error.message });
   }
 });
 

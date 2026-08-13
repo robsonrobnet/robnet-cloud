@@ -153,16 +153,24 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkGemini = async () => {
     setServiceStatus(prev => ({ ...prev, gemini: { ...prev.gemini, loading: true } }));
     try {
-      // Test via proxy directly to use server-side keys
+      const hasKey = credentials.gemini_key && credentials.gemini_key.trim().length > 0 && !credentials.gemini_key.includes('...');
+      const payload: any = { provider: 'GEMINI' };
+      if (hasKey) {
+        payload.apiKey = credentials.gemini_key.trim();
+      }
       const res = await fetch("/api/ai/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: 'GEMINI' })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       setServiceStatus(prev => ({ 
         ...prev, 
-        gemini: { status: res.ok ? 'ONLINE' : 'OFFLINE', message: res.ok ? 'Pronto (Server-Side)' : (data.error || 'Erro'), loading: false } 
+        gemini: { 
+          status: res.ok ? 'ONLINE' : 'OFFLINE', 
+          message: res.ok ? 'Pronto (Server-Side)' : (data.error || 'Erro de validação'), 
+          loading: false 
+        } 
       }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, gemini: { status: 'OFFLINE', message: e.message, loading: false } }));
@@ -172,10 +180,15 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
   const checkOpenAI = async () => {
     setServiceStatus(prev => ({ ...prev, openai: { ...prev.openai, loading: true } }));
     try {
+      const hasKey = credentials.openai_key && credentials.openai_key.trim().length > 0 && !credentials.openai_key.includes('...');
+      const payload: any = { provider: 'OPENAI' };
+      if (hasKey) {
+        payload.apiKey = credentials.openai_key.trim();
+      }
       const response = await fetch("/api/ai/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: 'OPENAI' })
+        body: JSON.stringify(payload)
       });
       
       const isOk = response.ok;
@@ -183,7 +196,11 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
       
       setServiceStatus(prev => ({ 
         ...prev, 
-        openai: { status: isOk ? 'ONLINE' : 'OFFLINE', message: isOk ? 'Pronto (Server-Side)' : (data.error || 'Chave inválida'), loading: false } 
+        openai: { 
+          status: isOk ? 'ONLINE' : 'OFFLINE', 
+          message: isOk ? 'Pronto (Server-Side)' : (data.error || 'Erro de validação'), 
+          loading: false 
+        } 
       }));
     } catch (e: any) {
       setServiceStatus(prev => ({ ...prev, openai: { status: 'OFFLINE', message: e.message, loading: false } }));
@@ -796,6 +813,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <button onClick={() => handleSaveCredentials('gemini')} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-lg">Salvar</button>
                                     <button onClick={checkGemini} className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-indigo-500 hover:text-white transition-all"><RefreshCw size={14} className={serviceStatus.gemini.loading ? 'animate-spin' : ''} /></button>
                                 </div>
+                                {serviceStatus.gemini.status === 'OFFLINE' && serviceStatus.gemini.message && (
+                                    <div className="mt-3 p-3 bg-rose-50 dark:bg-rose-950/20 rounded-xl border border-rose-100 dark:border-rose-900/30 text-[10px] font-medium text-rose-600 dark:text-rose-400 leading-relaxed font-mono">
+                                        <span className="font-bold block uppercase tracking-wider text-[9px] mb-1">Diagnóstico do Fornecedor:</span>
+                                        {serviceStatus.gemini.message}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -845,6 +868,12 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                     <button onClick={() => handleSaveCredentials('openai')} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-lg">Salvar</button>
                                     <button onClick={checkOpenAI} className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-rose-500 hover:text-white transition-all"><RefreshCw size={14} className={serviceStatus.openai.loading ? 'animate-spin' : ''} /></button>
                                 </div>
+                                {serviceStatus.openai.status === 'OFFLINE' && serviceStatus.openai.message && (
+                                    <div className="mt-3 p-3 bg-rose-50 dark:bg-rose-950/20 rounded-xl border border-rose-100 dark:border-rose-900/30 text-[10px] font-medium text-rose-600 dark:text-rose-400 leading-relaxed font-mono">
+                                        <span className="font-bold block uppercase tracking-wider text-[9px] mb-1">Diagnóstico do Fornecedor:</span>
+                                        {serviceStatus.openai.message}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

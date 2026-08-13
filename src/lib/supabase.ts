@@ -14,31 +14,40 @@ const supabaseAnonKey = (localStorage.getItem('finanai_db_key') || import.meta.e
 
 /**
  * Robust error formatter for Supabase/Postgrest errors.
- * Prevents [object Object] by extracting message, details, and hints.
+ * Prevents [object Object] and formats Failed to fetch connection errors cleanly.
  */
 export const formatSupabaseError = (e: any): string => {
   if (e === null || e === undefined) return "Erro desconhecido.";
+
+  // Extract combined string representation to catch network or connection failures
+  const combinedText = typeof e === 'string'
+    ? e
+    : [e?.message, e?.details, e?.hint, e?.error, String(e)].filter(Boolean).join(' ');
+
+  if (combinedText.includes('Failed to fetch') || combinedText.includes('NetworkError') || combinedText.includes('NETWORK_ERROR')) {
+    return "Erro de Conexão com o Banco de Dados (Failed to fetch): Não foi possível conectar ao Supabase. Verifique se o projeto Supabase está ativo, se a URL e Chave nas Configurações estão corretas e se há conexão com a internet.";
+  }
+
+  if (combinedText.includes('Invalid path specified in request URL')) {
+    return "URL do Supabase inválida: Certifique-se de que a URL não possui caminhos ou barras extras e está configurada corretamente no painel Admin.";
+  }
+
   if (typeof e === 'string') return e;
-  
+
   // Handle Supabase Postgrest Error structure
   if (e.message || e.code || e.details || e.hint) {
     let msg = e.message || "Erro de Banco de Dados";
     if (e.code) msg = `[${e.code}] ${msg}`;
-    if (e.details && e.details !== 'null') msg += ` | Detalhes: ${e.details}`;
+    if (e.details && e.details !== 'null' && e.details !== e.message && !e.details.includes(e.message)) {
+      msg += ` | Detalhes: ${e.details}`;
+    }
     if (e.hint && e.hint !== 'null') msg += ` | Dica: ${e.hint}`;
     return msg;
   }
 
   // Handle standard JS Error
   if (e instanceof Error) {
-    const msg = e.message;
-    if (msg === 'Failed to fetch') {
-      return "Erro de Conexão: Não foi possível alcançar o banco de dados. Verifique sua URL do Supabase ou se o projeto está ativo.";
-    }
-    if (msg.includes('Invalid path specified in request URL')) {
-      return "URL do Supabase inválida: Certifique-se de que a URL não possui barras extras ou está configurada corretamente no Admin Settings.";
-    }
-    return msg;
+    return e.message;
   }
 
   // Handle common API error patterns
@@ -57,7 +66,7 @@ export const formatSupabaseError = (e: any): string => {
   // Last resort to avoid [object Object]
   const raw = String(e);
   if (raw === '[object Object]') {
-      return "Ocorreu um erro inesperado (detalhes indisponíveis).";
+      return "Ocorreu um erro inesperado no banco de dados.";
   }
   return raw;
 };
