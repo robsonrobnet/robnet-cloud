@@ -5,7 +5,7 @@ import {
   Save, X, CheckCircle2, AlertTriangle, Database, Lock, 
   Unlock, Key, ShieldCheck, LayoutGrid, ToggleLeft, ToggleRight, Loader2
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, formatSupabaseError } from '../lib/supabase';
 import { Company, UserPlan, AppView } from '../types';
 
 const MasterConfig: React.FC = () => {
@@ -62,24 +62,38 @@ const MasterConfig: React.FC = () => {
   const handleSave = async () => {
     if (!isEditing) return;
     try {
-      const { error } = await supabase
+      const updateData: Record<string, any> = {
+        name: editForm.name,
+        plan: editForm.plan,
+        webhook_url: editForm.webhook_url
+      };
+      if (editForm.enabled_modules) {
+        updateData.enabled_modules = editForm.enabled_modules;
+      }
+
+      let { error } = await supabase
         .from('companies')
-        .update({
-          name: editForm.name,
-          plan: editForm.plan,
-          enabled_modules: editForm.enabled_modules,
-          webhook_url: editForm.webhook_url
-        })
+        .update(updateData)
         .eq('id', isEditing);
+
+      if (error && (error.code === 'PGRST204' || error.message?.includes('enabled_modules'))) {
+        console.warn("[MasterConfig] enabled_modules column missing in schema, retrying without it:", error.message);
+        delete updateData.enabled_modules;
+        const retry = await supabase
+          .from('companies')
+          .update(updateData)
+          .eq('id', isEditing);
+        error = retry.error;
+      }
 
       if (error) throw error;
       
       setCompanies(companies.map(c => c.id === isEditing ? { ...c, ...editForm } as Company : c));
       setIsEditing(null);
       alert("Perfil atualizado com sucesso!");
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error saving company:", e);
-      alert("Erro ao salvar perfil.");
+      alert("Erro ao salvar perfil: " + formatSupabaseError(e));
     }
   };
 
@@ -101,17 +115,30 @@ const MasterConfig: React.FC = () => {
     setIsLoading(true);
     try {
       // 1. Create Company
-      const { data: companyData, error: companyError } = await supabase
+      const insertData: Record<string, any> = { 
+        name: newProfileName, 
+        plan: 'FREE',
+        enabled_modules: ['DASHBOARD', 'TRANSACTIONS', 'CHAT', 'TUTORIAL']
+      };
+
+      let { data: companyData, error: companyError } = await supabase
         .from('companies')
-        .insert([{ 
-          name: newProfileName, 
-          plan: 'FREE',
-          enabled_modules: ['DASHBOARD', 'TRANSACTIONS', 'CHAT', 'TUTORIAL']
-        }])
+        .insert([insertData])
         .select();
 
+      if (companyError && (companyError.code === 'PGRST204' || companyError.message?.includes('enabled_modules'))) {
+        console.warn("[MasterConfig] enabled_modules column missing in schema, retrying insert without it:", companyError.message);
+        delete insertData.enabled_modules;
+        const retry = await supabase
+          .from('companies')
+          .insert([insertData])
+          .select();
+        companyData = retry.data;
+        companyError = retry.error;
+      }
+
       if (companyError) throw companyError;
-      if (!companyData) throw new Error("Falha ao criar empresa");
+      if (!companyData || companyData.length === 0) throw new Error("Falha ao criar empresa");
 
       const newCompany = companyData[0];
 
@@ -136,9 +163,9 @@ const MasterConfig: React.FC = () => {
       setIsCreating(false);
       
       alert(`Perfil "${newProfileName}" criado com sucesso!\n\nDados de Acesso Iniciais:\nUsuário: admin\nSenha: 123\nChave: ${accessKey}\n\nO perfil está totalmente zerado e pronto para configuração.`);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error creating company:", e);
-      alert("Erro ao criar perfil. Verifique a conexão com o banco de dados.");
+      alert("Erro ao criar perfil: " + formatSupabaseError(e));
     } finally {
       setIsLoading(false);
     }

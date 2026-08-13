@@ -198,7 +198,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, t }) => {
           throw new Error("Usuário ou Chave de Acesso não encontrada. Verifique se digitou corretamente ou se sua Conta foi ativada.");
         }
 
-        const user = userCandidates.find(u => u.password === cleanPassword);
+        const user = userCandidates.find((u: any) => u.password === cleanPassword);
         if (!user) {
           throw new Error("Senha incorreta. Verifique se o Caps Lock está ativado.");
         }

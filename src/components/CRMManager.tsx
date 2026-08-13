@@ -219,7 +219,7 @@ const CRMManager: React.FC<CRMManagerProps> = ({ currentUser }) => {
       // Refresh current lead data
       const updatedLeads = await FinancialService.getCRMLeads(currentUser.company_id);
       setLeads(updatedLeads);
-      const matched = updatedLeads.find(l => l.id === selectedLead.id);
+      const matched = updatedLeads.find((l: any) => l.id === selectedLead.id);
       if (matched) setSelectedLead(matched);
     } catch (error) {
       console.error(error);

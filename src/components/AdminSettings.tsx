@@ -72,7 +72,7 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   const [credentials, setCredentials] = useState({
     gemini_key: loadSecureSetting('gemini_key') || '',
-    gemini_model: localStorage.getItem('gemini_model') || 'gemini-1.5-flash',
+    gemini_model: localStorage.getItem('gemini_model') || 'gemini-3.6-flash',
     openai_key: loadSecureSetting('openai_key') || '',
     openai_model: localStorage.getItem('openai_model') || 'gpt-4o',
     chat_provider: localStorage.getItem('chat_provider') || 'GEMINI',
@@ -794,8 +794,9 @@ const AdminSettings: React.FC<AdminSettingsProps> = ({
                                         value={credentials.gemini_model}
                                         onChange={e => setCredentials({...credentials, gemini_model: e.target.value})}
                                     >
-                                        <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
+                                        <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
                                         <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+                                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                                     </select>
                                 </div>
                                 <div>

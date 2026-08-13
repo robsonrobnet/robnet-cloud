@@ -280,7 +280,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
         .select('category, title, content');
       if (kbArticles && kbArticles.length > 0) {
         const kbText = kbArticles
-          .map(art => `## [Conhecimento - ${art.category}]: ${art.title}\n${art.content}`)
+          .map((art: any) => `## [Conhecimento - ${art.category}]: ${art.title}\n${art.content}`)
           .join('\n\n');
         dbContext += `\n\n=== BASE DE CONHECIMENTO (TRIBUTÁRIO/FISCAL/OPERACIONAL) ===\nUtilize este conteúdo para responder e esclarecer dúvidas do usuário da forma mais precisa possível:\n${kbText}\n=== FIM DA BASE DE CONHECIMENTO ===`;
       }
@@ -299,34 +299,34 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
 
       let extraContext = `\n\n=== CONTEXTO ADICIONAL DO BANCO DE DADOS EM TEMPO REAL ===`;
       if (clientsDb && clientsDb.length > 0) {
-        extraContext += `\n[CLIENTES NFS-e]:\n` + JSON.stringify(clientsDb.map(c => ({ id: c.id, name: c.name, doc_type: c.doc_type, doc_number: c.doc_number, email: c.email, address: `${c.address_street}, ${c.address_number}, ${c.address_neighborhood}, ${c.address_city_code}` }))) + `\n`;
+        extraContext += `\n[CLIENTES NFS-e]:\n` + JSON.stringify(clientsDb.map((c: any) => ({ id: c.id, name: c.name, doc_type: c.doc_type, doc_number: c.doc_number, email: c.email, address: `${c.address_street}, ${c.address_number}, ${c.address_neighborhood}, ${c.address_city_code}` }))) + `\n`;
       } else {
         extraContext += `\n[CLIENTES NFS-e]: [] (Nenhum cliente NFS-e cadastrado ainda).\n`;
       }
       if (servicesDb && servicesDb.length > 0) {
-        extraContext += `\n[SERVIÇOS NFS-e]:\n` + JSON.stringify(servicesDb.map(s => ({ id: s.id, code: s.code, description: s.description, aliquot: s.aliquot, suggested_nbs: s.suggested_nbs, aliq_ibs: s.aliq_ibs, aliq_cbs: s.aliq_cbs }))) + `\n`;
+        extraContext += `\n[SERVIÇOS NFS-e]:\n` + JSON.stringify(servicesDb.map((s: any) => ({ id: s.id, code: s.code, description: s.description, aliquot: s.aliquot, suggested_nbs: s.suggested_nbs, aliq_ibs: s.aliq_ibs, aliq_cbs: s.aliq_cbs }))) + `\n`;
       } else {
         extraContext += `\n[SERVIÇOS NFS-e]: [] (Nenhum serviço NFS-e cadastrado ainda).\n`;
       }
       if (rpsDb && rpsDb.length > 0) {
         const sortedRps = [...rpsDb].sort((a,b) => b.rps_number - a.rps_number).slice(0, 30);
-        extraContext += `\n[NOTAS NFS-e RPS EMITIDAS]:\n` + JSON.stringify(sortedRps.map(r => ({ id: r.id, number: r.rps_number, client_id: r.client_id, service_id: r.service_id, val: r.service_amount, status: r.transmission_status, nfe: r.nfe_number }))) + `\n`;
+        extraContext += `\n[NOTAS NFS-e RPS EMITIDAS]:\n` + JSON.stringify(sortedRps.map((r: any) => ({ id: r.id, number: r.rps_number, client_id: r.client_id, service_id: r.service_id, val: r.service_amount, status: r.transmission_status, nfe: r.nfe_number }))) + `\n`;
       } else {
         extraContext += `\n[NOTAS NFS-e RPS EMITIDAS]: [] (Nenhuma nota emitida ainda).\n`;
       }
       if (productsDb && productsDb.length > 0) {
-        extraContext += `\n[PRODUTOS DA LOJA]:\n` + JSON.stringify(productsDb.map(p => ({ id: p.id, name: p.name, price: p.price, stock: p.stock_quantity, sku: p.sku, description: p.description, type: p.type }))) + `\n`;
+        extraContext += `\n[PRODUTOS DA LOJA]:\n` + JSON.stringify(productsDb.map((p: any) => ({ id: p.id, name: p.name, price: p.price, stock: p.stock_quantity, sku: p.sku, description: p.description, type: p.type }))) + `\n`;
       } else {
         extraContext += `\n[PRODUTOS DA LOJA]: [] (Nenhum produto cadastrado na loja ainda).\n`;
       }
       if (ordersDb && ordersDb.length > 0) {
         const sortedOrders = [...ordersDb].slice(0, 30);
-        extraContext += `\n[PEDIDOS DE VENDA]:\n` + JSON.stringify(sortedOrders.map(o => ({ id: o.id, customer: o.shop_customers?.name || 'Não cadastrado', total: o.total_amount, status: o.status, pay_status: o.payment_status }))) + `\n`;
+        extraContext += `\n[PEDIDOS DE VENDA]:\n` + JSON.stringify(sortedOrders.map((o: any) => ({ id: o.id, customer: o.shop_customers?.name || 'Não cadastrado', total: o.total_amount, status: o.status, pay_status: o.payment_status }))) + `\n`;
       } else {
         extraContext += `\n[PEDIDOS DE VENDA]: [] (Nenhum pedido de venda registrado ainda).\n`;
       }
       if (customersDb && customersDb.length > 0) {
-        extraContext += `\n[CLIENTES DA LOJA]:\n` + JSON.stringify(customersDb.map(c => ({ id: c.id, name: c.name, email: c.email, doc: c.document_number }))) + `\n`;
+        extraContext += `\n[CLIENTES DA LOJA]:\n` + JSON.stringify(customersDb.map((c: any) => ({ id: c.id, name: c.name, email: c.email, doc: c.document_number }))) + `\n`;
       } else {
         extraContext += `\n[CLIENTES DA LOJA]: [] (Nenhum cliente de loja cadastrado ainda).\n`;
       }
@@ -667,7 +667,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
 
     if (hasPendingActions) setShowReviewModal(true);
 
-    const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: result.textResponse, timestamp: Date.now() };
+    const contentText = (result.textResponse && result.textResponse.trim()) ? result.textResponse : "Olá! Como posso te ajudar hoje?";
+    const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: contentText, timestamp: Date.now() };
     setMessages(prev => [...prev, aiMsg]);
     onSaveMessage(aiMsg);
     setIsLoading(false);

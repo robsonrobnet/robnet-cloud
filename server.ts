@@ -6,7 +6,7 @@ import * as dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 
 dotenv.config();
@@ -150,16 +150,19 @@ async function getSecureConfig(key: string, req?: Request): Promise<string | nul
 
 // --- AI HELPER FUNCTIONS ---
 async function callGemini(apiKey: string, modelName: string, systemPrompt: string, input: string, attachment: any, chatHistory: any[]) {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  let selectedModel = modelName || "gemini-1.5-flash";
-  if (selectedModel.startsWith("gemini-3")) {
-    selectedModel = "gemini-1.5-flash"; // Normalize to stable model for general use
-  }
-  
-  const model = genAI.getGenerativeModel({ 
-    model: selectedModel,
-    systemInstruction: systemPrompt 
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build'
+      }
+    }
   });
+
+  let selectedModel = modelName || "gemini-3.6-flash";
+  if (selectedModel === "gemini-1.5-flash" || selectedModel === "gemini-1.5-pro" || selectedModel === "gemini-2.0-flash" || selectedModel === "gemini-pro") {
+    selectedModel = "gemini-3.6-flash";
+  }
 
   const parts: any[] = [{ text: input }];
   if (attachment) {
@@ -167,7 +170,7 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
     parts.push({ inlineData: { mimeType: attachment.mimeType, data: base64Data } });
   }
 
-  const contents = [];
+  const contents: any[] = [];
   if (chatHistory && chatHistory.length > 0) {
     chatHistory.forEach((msg: any) => {
       contents.push({
@@ -178,9 +181,15 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
   }
   contents.push({ role: 'user', parts });
 
-  const result = await model.generateContent({ contents });
-  const response = await result.response;
-  return response.text();
+  const response = await ai.models.generateContent({
+    model: selectedModel,
+    contents,
+    config: {
+      systemInstruction: systemPrompt
+    }
+  });
+
+  return response.text || "";
 }
 
 async function callOpenAI(apiKey: string, modelName: string, systemPrompt: string, input: string, attachment: any, chatHistory: any[]) {
@@ -240,7 +249,7 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
       } catch (err: any) {
         console.error("[AI Proxy - OpenAI Error, trying Gemini fallback]:", err);
         if (geminiKey) {
-          const text = await callGemini(geminiKey, "gemini-1.5-flash", systemPrompt, input, attachment, chatHistory);
+          const text = await callGemini(geminiKey, "gemini-3.6-flash", systemPrompt, input, attachment, chatHistory);
           return res.json({ text });
         }
         throw err;
@@ -260,8 +269,20 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
         const text = await callGemini(geminiKey, modelName, systemPrompt, input, attachment, chatHistory);
         return res.json({ text });
       } catch (err: any) {
-        console.error("[AI Proxy - Preferred Gemini Error]:", err);
+        console.error("[AI Proxy - Preferred Gemini Error]:", err.message || err);
         
+        // If custom Gemini key failed, try system process.env.GEMINI_API_KEY fallback if available
+        const sysGeminiKey = process.env.GEMINI_API_KEY;
+        if (sysGeminiKey && sysGeminiKey !== geminiKey) {
+          try {
+            console.log("[AI Proxy] Custom Gemini key failed, trying system GEMINI_API_KEY fallback...");
+            const text = await callGemini(sysGeminiKey, modelName, systemPrompt, input, attachment, chatHistory);
+            return res.json({ text });
+          } catch (sysErr: any) {
+            console.error("[AI Proxy - System Gemini Fallback Error]:", sysErr.message || sysErr);
+          }
+        }
+
         // If Gemini failed, attempt OpenAI fallback if configured
         if (openaiKey) {
           try {
@@ -291,17 +312,17 @@ app.post("/api/ai/chat", async (req: Request, res: Response) => {
 
     if (geminiKey) {
       try {
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        let selectedModel = modelName || "gemini-1.5-flash";
-        if (selectedModel.startsWith("gemini-3")) {
-          selectedModel = "gemini-1.5-flash";
-        }
-        const model = genAI.getGenerativeModel({ model: selectedModel });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return res.json({ text: response.text() });
+        const text = await callGemini(geminiKey, modelName || "gemini-3.6-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
+        return res.json({ text });
       } catch (err: any) {
-        console.error("[Chat Proxy Gemini Error]:", err);
+        console.error("[Chat Proxy Gemini Error]:", err.message || err);
+        const sysKey = process.env.GEMINI_API_KEY;
+        if (sysKey && sysKey !== geminiKey) {
+          try {
+            const text = await callGemini(sysKey, modelName || "gemini-3.6-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
+            return res.json({ text });
+          } catch (sysErr) {}
+        }
       }
     }
 
@@ -368,17 +389,21 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
       }
       
       try {
-        const genAI = new GoogleGenerativeAI(key);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        await model.generateContent("OK");
+        const ai = new GoogleGenAI({
+          apiKey: key,
+          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+        });
+        await ai.models.generateContent({ model: "gemini-3.6-flash", contents: "OK" });
         res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
       } catch (err: any) {
         // Only attempt fallback if we came via standard verify and NOT from an explicit custom key test
         if (!isExplicitTest && !isFallback && process.env.GEMINI_API_KEY) {
           try {
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-            await model.generateContent("OK");
+            const ai = new GoogleGenAI({
+              apiKey: process.env.GEMINI_API_KEY,
+              httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+            });
+            await ai.models.generateContent({ model: "gemini-3.6-flash", contents: "OK" });
             return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
           } catch (envErr) {}
         }

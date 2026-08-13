@@ -110,7 +110,7 @@ export const analyzeFinancialInput = async (
         lang,
         chatHistory,
         provider,
-        modelName: provider === 'OPENAI' ? (localStorage.getItem('openai_model') || 'gpt-4o') : (localStorage.getItem('gemini_model') || 'gemini-1.5-flash'),
+        modelName: provider === 'OPENAI' ? (localStorage.getItem('openai_model') || 'gpt-4o') : (localStorage.getItem('gemini_model') || 'gemini-3.6-flash'),
         systemPrompt: fullSystemPrompt
       })
     });
@@ -132,36 +132,78 @@ export const analyzeFinancialInput = async (
  * Processa a resposta bruta da IA para extrair JSON e texto limpo.
  */
 const processAIResponse = (rawText: string) => {
-  let cleanTextResponse = rawText;
-  let extractedTransactions = [];
-  let updates = [];
-  let deletions = [];
-  let extractedClients = [];
-  let extractedNfseServices = [];
-  let extractedNfseRps = [];
-  let extractedProducts = [];
-  let extractedSalesOrders = [];
-  let extractedShopCustomers = [];
+  let cleanTextResponse = "";
+  let extractedTransactions: any[] = [];
+  let updates: any[] = [];
+  let deletions: any[] = [];
+  let extractedClients: any[] = [];
+  let extractedNfseServices: any[] = [];
+  let extractedNfseRps: any[] = [];
+  let extractedProducts: any[] = [];
+  let extractedSalesOrders: any[] = [];
+  let extractedShopCustomers: any[] = [];
 
-  const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+  if (!rawText) {
+    return {
+      textResponse: "Olá! Como posso ajudar você hoje?",
+      extractedTransactions,
+      updates,
+      deletions,
+      extractedClients,
+      extractedNfseServices,
+      extractedNfseRps,
+      extractedProducts,
+      extractedSalesOrders,
+      extractedShopCustomers
+    };
+  }
+
+  let parsed: any = null;
+
+  // 1. Tentar extrair bloco de código markdown ```json ... ```
+  const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (jsonMatch && jsonMatch[1]) {
     try {
-      const parsed = JSON.parse(jsonMatch[1]);
-      if (parsed && typeof parsed === 'object') {
-        extractedTransactions = parsed.extractedTransactions || [];
-        updates = parsed.updates || [];
-        deletions = parsed.deletions || [];
-        extractedClients = parsed.extractedClients || [];
-        extractedNfseServices = parsed.extractedNfseServices || [];
-        extractedNfseRps = parsed.extractedNfseRps || [];
-        extractedProducts = parsed.extractedProducts || [];
-        extractedSalesOrders = parsed.extractedSalesOrders || [];
-        extractedShopCustomers = parsed.extractedShopCustomers || [];
-        cleanTextResponse = rawText.replace(/```json[\s\S]*?```/, "").trim();
-      }
+      parsed = JSON.parse(jsonMatch[1]);
     } catch (e) {
-      console.error("Erro ao processar JSON da IA:", e);
+      console.error("Erro ao processar JSON no bloco markdown da IA:", e);
     }
+  }
+
+  // 2. Tentar parsing direto de JSON caso a IA responda JSON sem marcadores markdown
+  if (!parsed && rawText.trim().startsWith('{') && rawText.trim().endsWith('}')) {
+    try {
+      parsed = JSON.parse(rawText.trim());
+    } catch (e) {
+      console.error("Erro ao processar JSON bruto da IA:", e);
+    }
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    extractedTransactions = parsed.extractedTransactions || [];
+    updates = parsed.updates || [];
+    deletions = parsed.deletions || [];
+    extractedClients = parsed.extractedClients || [];
+    extractedNfseServices = parsed.extractedNfseServices || [];
+    extractedNfseRps = parsed.extractedNfseRps || [];
+    extractedProducts = parsed.extractedProducts || [];
+    extractedSalesOrders = parsed.extractedSalesOrders || [];
+    extractedShopCustomers = parsed.extractedShopCustomers || [];
+
+    const outsideText = rawText.replace(/```(?:json)?[\s\S]*?```/, "").trim();
+
+    if (parsed.textResponse && typeof parsed.textResponse === 'string' && parsed.textResponse.trim()) {
+      cleanTextResponse = outsideText ? `${parsed.textResponse}\n\n${outsideText}` : parsed.textResponse;
+    } else if (outsideText) {
+      cleanTextResponse = outsideText;
+    }
+  } else {
+    // Caso não seja um objeto JSON válido, utiliza o texto limpo sem blocos de código
+    cleanTextResponse = rawText.replace(/```(?:json)?[\s\S]*?```/, "").trim() || rawText.trim();
+  }
+
+  if (!cleanTextResponse.trim()) {
+    cleanTextResponse = "Entendi! Como posso te ajudar com o FinanAI OS hoje?";
   }
 
   return { 

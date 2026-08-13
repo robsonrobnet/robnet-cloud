@@ -323,7 +323,7 @@ export const FinancialService = {
 
     // Trigger recurrence sync for the whole batch
     if (data && data.length > 0) {
-        data.forEach(t => this._generateFutureTransactions(t).catch(console.error));
+        data.forEach((t: any) => this._generateFutureTransactions(t).catch(console.error));
     }
 
     return { data, error: null };
@@ -369,7 +369,7 @@ export const FinancialService = {
         const processedGroups = new Set<string>();
 
         // Run checks concurrently for better performance
-        const syncPromises = candidates.map(async (t) => {
+        const syncPromises = candidates.map(async (t: any) => {
             const key = t.installment_total 
                 ? `${t.description.replace(/\(.*\)/, '').trim()}_inst_${t.installment_total}` 
                 : `${t.description}_rec`;
@@ -514,7 +514,7 @@ export const FinancialService = {
       .limit(50);
       
     if (error) throw error;
-    return data.map(m => ({
+    return data.map((m: any) => ({
       ...m,
       timestamp: new Date(m.timestamp).getTime()
     })) as ChatMessage[];
