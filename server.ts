@@ -105,15 +105,19 @@ ensureInfrastructure();
 async function getSecureConfigFromDbOnly(key: string, req?: Request): Promise<string | null> {
   try {
     const client = getRequestSupabaseClient(req);
-    const { data, error } = await client
+    const queryPromise = client
       .from('master_config')
       .select('value')
       .eq('key', key)
       .maybeSingle();
+    const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout DB config")), 1500)
+    );
+    const { data } = await (Promise.race([queryPromise, timeoutPromise]) as any);
     
     if (data?.value) return data.value;
   } catch (e) {
-    console.error(`[SecureConfigDbOnly] Error fetching ${key} from DB:`, e);
+    // Ignore db timeout and continue
   }
   return null;
 }
@@ -137,13 +141,13 @@ async function getSecureConfig(key: string, req?: Request): Promise<string | nul
     }
   }
 
-  // 2. Try Database (master_config table)
+  // 2. Try Environment Variable (instant and reliable)
+  const envVal = process.env[key];
+  if (envVal && envVal.trim()) return envVal.trim();
+
+  // 3. Try Database (master_config table)
   const dbVal = await getSecureConfigFromDbOnly(key, req);
   if (dbVal) return dbVal;
-
-  // 3. Try Environment Variable as fallback
-  const envVal = process.env[key];
-  if (envVal) return envVal;
 
   return null;
 }
@@ -159,9 +163,9 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
     }
   });
 
-  let selectedModel = modelName || "gemini-3.6-flash";
-  if (selectedModel === "gemini-1.5-flash" || selectedModel === "gemini-1.5-pro" || selectedModel === "gemini-2.0-flash" || selectedModel === "gemini-pro") {
-    selectedModel = "gemini-3.6-flash";
+  let selectedModel = modelName || "gemini-2.5-flash";
+  if (selectedModel === "gemini-3.6-flash" || selectedModel === "gemini-1.5-flash" || selectedModel === "gemini-1.5-pro" || selectedModel === "gemini-pro") {
+    selectedModel = "gemini-2.5-flash";
   }
 
   const parts: any[] = [{ text: input }];
@@ -285,7 +289,7 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
       } catch (err: any) {
         console.error("[AI Proxy - OpenAI Error, trying Gemini fallback]:", err);
         if (geminiKey) {
-          const text = await callGemini(geminiKey, "gemini-3.6-flash", systemPrompt, input, attachment, chatHistory);
+          const text = await callGemini(geminiKey, "gemini-2.5-flash", systemPrompt, input, attachment, chatHistory);
           return res.json({ text });
         }
         throw err;
@@ -339,6 +343,151 @@ app.post("/api/ai/analyze", async (req: Request, res: Response) => {
   }
 });
 
+// --- RECEIPT OCR ENDPOINT (GEMINI VISION) ---
+app.post("/api/ai/ocr-receipt", async (req: Request, res: Response) => {
+  const { imageBase64, mimeType, categories } = req.body;
+  
+  if (!imageBase64) {
+    return res.status(400).json({ error: "Dados da imagem ou documento não fornecidos." });
+  }
+
+  try {
+    const geminiKey = await getSecureConfig('GEMINI_API_KEY', req) || process.env.GEMINI_API_KEY;
+    const openaiKey = await getSecureConfig('OPENAI_API_KEY', req);
+
+    const categoryList = Array.isArray(categories) && categories.length > 0
+      ? categories.join(', ')
+      : 'Alimentação, Transporte, Combustível, Saúde, Farmácia, Serviços, Fornecedores, Material de Escritório, Impostos, Lazer, Tecnologia, Outros';
+
+    const systemPrompt = `Você é um motor especialista em OCR e Extração de Documentos Financeiros (recibos, cupons fiscais NFC-e/SAT, notas fiscais de serviço, comprovantes de Pix/TED/Cartão, faturas de compras).
+Analise a imagem deste recibo/documento e extraia com precisão cirúrgica:
+1. "date": data da transação ou emissão no formato estrito "YYYY-MM-DD" (se não constar o ano, utilize o ano corrente ${new Date().getFullYear()}).
+2. "amount": valor monetário total numérico (float positivo, ex: 87.50). Nunca retorne string com cifrão.
+3. "description": descrição limpa contendo o nome do estabelecimento/empresa/prestador e resumo da despesa (ex: "Supermercado Pão de Açúcar", "Posto Shell - Combustível", "Droga Raia - Medicamentos").
+4. "type": "EXPENSE" (para despesas, compras, pagamentos) ou "INCOME" (para comprovantes de recebimento). Padrão para recibos de compra é "EXPENSE".
+5. "category": a melhor categoria correspondente dentre: [${categoryList}].
+6. "entity_name": razão social ou nome fantasia do estabelecimento/favorecido.
+7. "document_number": CNPJ ou CPF do estabelecimento se visível.
+8. "payment_method": forma de pagamento identificada (ex: "Cartão de Crédito", "Pix", "Cartão de Débito", "Dinheiro", "Boleto").
+9. "bank_name": banco ou instituição financeira se identificada (ex: "Nubank", "Itaú", "Bradesco", "Santander", "Inter").
+10. "items": lista de itens do cupom fiscal se legíveis: [{"description": "Item", "quantity": 1, "unit_price": 10.0, "total": 10.0}].
+11. "confidence_score": nível de confiança da leitura de 0 a 100 (número inteiro).
+12. "raw_text": principais linhas de texto legíveis do documento.
+
+Retorne ESTRITAMENTE um objeto JSON válido (sem comentários fora do JSON):
+{
+  "date": "YYYY-MM-DD",
+  "amount": 0.00,
+  "description": "Nome do Estabelecimento",
+  "type": "EXPENSE",
+  "category": "Alimentação",
+  "entity_name": "Nome da Empresa",
+  "document_number": "",
+  "payment_method": "Pix",
+  "bank_name": "",
+  "items": [],
+  "confidence_score": 95,
+  "raw_text": ""
+}`;
+
+    let cleanBase64 = imageBase64;
+    let detectedMime = mimeType || 'image/jpeg';
+    if (imageBase64.includes('base64,')) {
+      const parts = imageBase64.split('base64,');
+      cleanBase64 = parts[1];
+      const matchMime = parts[0].match(/data:(.*?);/);
+      if (matchMime && matchMime[1]) detectedMime = matchMime[1];
+    }
+
+    if (geminiKey) {
+      try {
+        const ai = new GoogleGenAI({
+          apiKey: geminiKey,
+          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+        });
+
+        const contents: any[] = [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: detectedMime,
+                  data: cleanBase64
+                }
+              },
+              { text: "Extraia a data, valor total, descrição do estabelecimento e categoria deste recibo em JSON conforme as instruções." }
+            ]
+          }
+        ];
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3.7-flash",
+          contents,
+          config: {
+            systemInstruction: systemPrompt
+          }
+        });
+
+        const responseText = response.text || "";
+        let parsed: any = null;
+        const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          try { parsed = JSON.parse(jsonMatch[1]); } catch(e) {}
+        }
+        if (!parsed && responseText.trim().startsWith('{') && responseText.trim().endsWith('}')) {
+          try { parsed = JSON.parse(responseText.trim()); } catch(e) {}
+        }
+
+        if (parsed) {
+          return res.json({ success: true, data: parsed, rawResponse: responseText });
+        }
+      } catch (geminiErr: any) {
+        console.error("[OCR Receipt Gemini Error]:", geminiErr.message || geminiErr);
+      }
+    }
+
+    // Fallback OpenAI if Gemini not available or failed
+    if (openaiKey) {
+      try {
+        const openai = new OpenAI({ apiKey: openaiKey });
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Extraia data, valor e descrição do recibo em JSON." },
+                { type: "image_url", image_url: { url: `data:${detectedMime};base64,${cleanBase64}` } }
+              ]
+            }
+          ]
+        });
+        const content = response.choices[0].message.content || "";
+        let parsed: any = null;
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          try { parsed = JSON.parse(jsonMatch[1]); } catch(e) {}
+        }
+        if (!parsed && content.trim().startsWith('{') && content.trim().endsWith('}')) {
+          try { parsed = JSON.parse(content.trim()); } catch(e) {}
+        }
+        if (parsed) {
+          return res.json({ success: true, data: parsed, rawResponse: content });
+        }
+      } catch (openAiErr: any) {
+        console.error("[OCR Receipt OpenAI Fallback Error]:", openAiErr);
+      }
+    }
+
+    throw new Error("Não foi possível processar o OCR do recibo com as chaves configuradas.");
+  } catch (error: any) {
+    console.error("[OCR Receipt General Error]:", error);
+    res.status(500).json({ error: error.message || "Erro no OCR do recibo" });
+  }
+});
+
 
 app.post("/api/ai/chat", async (req: Request, res: Response) => {
   const { prompt, history, modelName } = req.body;
@@ -348,14 +497,14 @@ app.post("/api/ai/chat", async (req: Request, res: Response) => {
 
     if (geminiKey) {
       try {
-        const text = await callGemini(geminiKey, modelName || "gemini-3.6-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
+        const text = await callGemini(geminiKey, modelName || "gemini-2.5-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
         return res.json({ text });
       } catch (err: any) {
         console.error("[Chat Proxy Gemini Error]:", err.message || err);
         const sysKey = process.env.GEMINI_API_KEY;
         if (sysKey && sysKey !== geminiKey) {
           try {
-            const text = await callGemini(sysKey, modelName || "gemini-3.6-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
+            const text = await callGemini(sysKey, modelName || "gemini-2.5-flash", "Você é um assistente financeiro inteligente.", prompt, null, history);
             return res.json({ text });
           } catch (sysErr) {}
         }
@@ -429,17 +578,25 @@ app.post("/api/ai/test", async (req: Request, res: Response) => {
           apiKey: key,
           httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
         });
-        await ai.models.generateContent({ model: "gemini-3.6-flash", contents: "OK" });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Tempo limite de resposta do Gemini excedido")), 7000));
+        await Promise.race([
+          ai.models.generateContent({ model: "gemini-2.5-flash", contents: "OK" }),
+          timeoutPromise
+        ]);
         res.json({ success: true, message: isFallback ? "Ativo (Chave Gratuita do Sistema)" : "OK" });
       } catch (err: any) {
         // Only attempt fallback if we came via standard verify and NOT from an explicit custom key test
-        if (!isExplicitTest && !isFallback && process.env.GEMINI_API_KEY) {
+        if (!isExplicitTest && !isFallback && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== key) {
           try {
             const ai = new GoogleGenAI({
               apiKey: process.env.GEMINI_API_KEY,
               httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
             });
-            await ai.models.generateContent({ model: "gemini-3.6-flash", contents: "OK" });
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Tempo limite excedido")), 5000));
+            await Promise.race([
+              ai.models.generateContent({ model: "gemini-2.5-flash", contents: "OK" }),
+              timeoutPromise
+            ]);
             return res.json({ success: true, message: "Ativo (Chave Gratuita do Sistema)" });
           } catch (envErr) {}
         }

@@ -5,11 +5,13 @@ import {
   Search, Trash2, Calendar, Tag, ShoppingBag, Coffee, Car, Home, 
   Heart, Zap, Gamepad2, Utensils, Landmark, Wallet, CreditCard, 
   Coins, HeartPulse, Smartphone, Briefcase, User, Clock, AlertTriangle, Box, ArrowUpCircle, ArrowDownCircle,
-  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays, Camera, Loader2, Plus, Bell
+  Edit, CheckCircle2, Save, X, Building2, ExternalLink, Filter, CalendarDays, Camera, Loader2, Plus, Bell,
+  FileSpreadsheet, FileText, Download
 } from 'lucide-react';
 import { supabase, formatSupabaseError } from '../lib/supabase';
 import { FinancialService } from '../services/financialService';
 import { analyzeFinancialInput } from '../services/geminiService';
+import { exportTransactionsToCSV, exportTransactionsToPDF } from '../utils/exportUtils';
 import { List, RowComponentProps, ListImperativeAPI } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 
@@ -117,6 +119,43 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
 
       return groups;
   }, [filtered]);
+
+  // Filtered totals summary for quick report metrics
+  const filteredSummary = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    filtered.forEach(t => {
+      if (t.type === 'INCOME') income += Number(t.amount || 0);
+      else expense += Number(t.amount || 0);
+    });
+    return {
+      income,
+      expense,
+      balance: income - expense,
+      count: filtered.length
+    };
+  }, [filtered]);
+
+  // Export handlers
+  const handleExportCSV = () => {
+    const selectedCompany = companies.find(c => c.id === companyFilter);
+    exportTransactionsToCSV(filtered, categories, companies, {
+      searchTerm,
+      typeFilter,
+      scopeFilter,
+      companyName: selectedCompany?.name
+    });
+  };
+
+  const handleExportPDF = () => {
+    const selectedCompany = companies.find(c => c.id === companyFilter);
+    exportTransactionsToPDF(filtered, categories, companies, {
+      searchTerm,
+      typeFilter,
+      scopeFilter,
+      companyName: selectedCompany?.name
+    });
+  };
 
   // --- ACTIONS ---
 
@@ -681,7 +720,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Extrato de Lançamentos</h2>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Gerenciamento completo de entradas e saídas</p>
             </div>
-            <div className="flex flex-wrap gap-3 items-center">
+            <div className="flex flex-wrap gap-2.5 items-center">
                <input 
                  type="file" 
                  ref={fileInputRef} 
@@ -689,6 +728,27 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                  accept="image/*,.pdf,.ofx" 
                  onChange={handleFileSelect} 
                />
+               
+               {/* Export CSV Button */}
+               <button 
+                 onClick={handleExportCSV}
+                 title="Exportar transações filtradas para planilha CSV (Excel)"
+                 className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+               >
+                 <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
+                 <span>CSV</span>
+               </button>
+
+               {/* Export PDF Button */}
+               <button 
+                 onClick={handleExportPDF}
+                 title="Exportar relatório executivo em PDF formatado"
+                 className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+               >
+                 <FileText size={14} className="text-rose-600 dark:text-rose-400" />
+                 <span>PDF</span>
+               </button>
+
                <button 
                  onClick={() => {
                    if (fileInputRef.current) {
@@ -698,10 +758,10 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                    }
                  }}
                  disabled={isScanning}
-                 className="bg-indigo-600/10 text-indigo-600 border border-indigo-600/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 disabled:opacity-50"
+                 className="bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 border border-indigo-600/20 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 disabled:opacity-50"
                >
                  {isScanning ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                 {isScanning ? 'Analisando...' : 'Escanear Recibo'}
+                 {isScanning ? 'Analisando...' : 'Escanear'}
                </button>
 
                <button 
@@ -723,14 +783,15 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
                    });
                    setIsEditModalOpen(true);
                  }}
-                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center gap-2"
+                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
                >
                  <Plus size={14} /> Novo Lançamento
                </button>
+
                <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex">
-                  <button onClick={() => setScopeFilter('ALL')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'ALL' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-400'}`}>Tudo</button>
-                  <button onClick={() => setScopeFilter('BUSINESS')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'BUSINESS' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>Empresas</button>
-                  <button onClick={() => setScopeFilter('PERSONAL')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'PERSONAL' ? 'bg-white dark:bg-slate-700 shadow-sm text-teal-600 dark:text-teal-400' : 'text-slate-400'}`}>Pessoal</button>
+                  <button onClick={() => setScopeFilter('ALL')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'ALL' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-400'}`}>Tudo</button>
+                  <button onClick={() => setScopeFilter('BUSINESS')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'BUSINESS' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>Empresas</button>
+                  <button onClick={() => setScopeFilter('PERSONAL')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${scopeFilter === 'PERSONAL' ? 'bg-white dark:bg-slate-700 shadow-sm text-teal-600 dark:text-teal-400' : 'text-slate-400'}`}>Pessoal</button>
                </div>
             </div>
         </div>
@@ -749,6 +810,29 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, categor
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)} className="px-6 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-300 outline-none">
             <option value="ALL">Todas Operações</option><option value="INCOME">Receitas (+)</option><option value="EXPENSE">Despesas (-)</option>
           </select>
+        </div>
+
+        {/* SUMMARY STRIP */}
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+          <div className="flex items-center gap-2 text-slate-400 font-bold">
+            <span className="text-slate-700 dark:text-slate-300 font-extrabold">{filteredSummary.count}</span> {filteredSummary.count === 1 ? 'lançamento encontrado' : 'lançamentos encontrados'}
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-1.5 font-bold">
+              <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Entradas:</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-black">+ R$ {filteredSummary.income.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex items-center gap-1.5 font-bold">
+              <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Saídas:</span>
+              <span className="text-rose-600 dark:text-rose-400 font-black">- R$ {filteredSummary.expense.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex items-center gap-1.5 font-bold px-3 py-1 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60">
+              <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Saldo:</span>
+              <span className={`font-black ${filteredSummary.balance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                R$ {filteredSummary.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

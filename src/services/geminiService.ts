@@ -177,14 +177,14 @@ export const analyzeFinancialInput = async (
         lang,
         chatHistory,
         provider,
-        modelName: provider === 'OPENAI' ? (localStorage.getItem('openai_model') || 'gpt-4o') : (localStorage.getItem('gemini_model') || 'gemini-3.6-flash'),
+        modelName: provider === 'OPENAI' ? (localStorage.getItem('openai_model') || 'gpt-4o') : (localStorage.getItem('gemini_model') || 'gemini-2.5-flash'),
         systemPrompt: fullSystemPrompt
       })
     });
 
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || "Erro no proxy do servidor");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro no proxy do servidor (${response.status})`);
     }
 
     const data = await response.json();
@@ -315,12 +315,12 @@ export const generateChatResponse = async (prompt: string, history: any[] = []):
     });
 
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || "Erro no servidor");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro no servidor (${response.status})`);
     }
 
-    const data = await response.json();
-    return data.text.trim();
+    const data = await response.json().catch(() => ({}));
+    return data.text ? data.text.trim() : "";
   } catch (error: any) {
     console.error("Gemini Generic Error:", error);
     return `Erro ao gerar resposta: ${error.message}`;
@@ -332,21 +332,86 @@ export const generateChatResponse = async (prompt: string, history: any[] = []):
  */
 export const testGeminiConnection = async (apiKey?: string): Promise<{ success: boolean; message?: string }> => {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     const response = await fetch("/api/ai/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: 'GEMINI', apiKey })
+        body: JSON.stringify({ provider: 'GEMINI', apiKey }),
+        signal: controller.signal
     });
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
-        const err = await response.json();
-        return { success: false, message: err.error || "Erro no servidor" };
+        const err = await response.json().catch(() => ({}));
+        return { success: false, message: err.error || `Erro na validação do Gemini (${response.status})` };
     }
     
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     return { success: true, message: data.message || "OK" };
   } catch (error: any) {
-    console.error("Gemini Test Error:", error);
-    return { success: false, message: error.message || "Erro desconhecido na conexão" };
+    if (error.name === 'AbortError') {
+      return { success: false, message: "Tempo limite na validação do Gemini" };
+    }
+    return { success: false, message: error.message || "Erro na conexão com o serviço Gemini" };
   }
 };
+
+export interface ReceiptOcrResult {
+  date: string;
+  amount: number;
+  description: string;
+  type?: 'EXPENSE' | 'INCOME';
+  category?: string;
+  entity_name?: string;
+  document_number?: string;
+  payment_method?: string;
+  bank_name?: string;
+  items?: Array<{
+    description: string;
+    quantity?: number;
+    unit_price?: number;
+    total?: number;
+  }>;
+  confidence_score?: number;
+  raw_text?: string;
+}
+
+/**
+ * Realiza OCR de alta precisão em recibos/comprovantes usando Gemini Vision.
+ * Extrai automaticamente Data, Valor e Descrição além de categoria e estabelecimento.
+ */
+export const scanReceiptWithGemini = async (
+  imageBase64: string,
+  categories?: string[],
+  mimeType: string = 'image/jpeg'
+): Promise<ReceiptOcrResult> => {
+  try {
+    const response = await fetch("/api/ai/ocr-receipt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageBase64,
+        mimeType,
+        categories
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro no servidor (${response.status})`);
+    }
+
+    const resData = await response.json();
+    if (!resData.data) {
+      throw new Error("Não foi possível extrair dados estruturados do recibo.");
+    }
+
+    return resData.data;
+  } catch (error: any) {
+    console.error("Erro no OCR com Gemini:", error);
+    throw error;
+  }
+};
+

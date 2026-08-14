@@ -1,11 +1,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Loader2, Sparkles, Mic, MicOff, X, Building2, User, FileText, FileSpreadsheet, File, Maximize2, Check, Calendar as CalendarIcon, DollarSign, Tag, AlertTriangle, Trash2, ArrowRight, Clock, Calendar, FileCode, Camera, Target, Package, ShoppingCart } from 'lucide-react';
+import { Send, Paperclip, Loader2, Sparkles, Mic, MicOff, X, Building2, User, FileText, FileSpreadsheet, File, Maximize2, Check, Calendar as CalendarIcon, DollarSign, Tag, AlertTriangle, Trash2, ArrowRight, Clock, Calendar, FileCode, Camera, Target, Package, ShoppingCart, ScanLine, Receipt } from 'lucide-react';
 import { ChatMessage, Transaction, User as UserType, Language, TransactionScope, Company, Category } from '../types';
-import { analyzeFinancialInput, Attachment } from '../services/geminiService';
+import { analyzeFinancialInput, Attachment, ReceiptOcrResult } from '../services/geminiService';
 import { FinancialService } from '../services/financialService';
 import { supabase } from '../lib/supabase';
 import { validateServiceGuidelines } from './NfseManager';
+import { ReceiptUploader } from './ReceiptUploader';
 import * as XLSX from 'xlsx';
 
 interface ChatInterfaceProps {
@@ -40,6 +41,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null); // For Images
   const [lastScannedImage, setLastScannedImage] = useState<string | null>(null);
+
+  // Receipt OCR Uploader State
+  const [showReceiptUploader, setShowReceiptUploader] = useState(false);
+  const [receiptInitialImage, setReceiptInitialImage] = useState<string | null>(null);
   
   const [manualScope, setManualScope] = useState<TransactionScope | 'AUTO'>('AUTO');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -929,6 +934,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 h-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-300 relative">
+      
+      {/* RECEIPT OCR UPLOADER OVERLAY MODAL */}
+      {showReceiptUploader && (
+        <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-6 animate-in fade-in">
+          <div className="w-full max-w-3xl">
+            <ReceiptUploader
+              onAddTransaction={onAddTransaction}
+              categories={categories}
+              companies={companies}
+              currentUser={currentUser}
+              initialImage={receiptInitialImage}
+              onClose={() => {
+                setShowReceiptUploader(false);
+                setReceiptInitialImage(null);
+              }}
+              onSuccess={(extracted) => {
+                const systemMsg: ChatMessage = {
+                  id: Date.now().toString(),
+                  role: 'assistant',
+                  content: `🧾 **Recibo Processado via Gemini OCR**\n\n• **Descrição:** ${extracted.description}\n• **Valor:** R$ ${Number(extracted.amount).toFixed(2)}\n• **Data:** ${extracted.date}\n• **Categoria:** ${extracted.category || 'Geral'}\n• **Tipo:** ${extracted.type === 'EXPENSE' ? 'Despesa / Saída' : 'Receita / Entrada'}${extracted.entity_name ? `\n• **Estabelecimento:** ${extracted.entity_name}` : ''}\n\n✅ *Lançamento adicionado com sucesso ao fluxo financeiro!*`,
+                  timestamp: Date.now()
+                };
+                setMessages(prev => [...prev, systemMsg]);
+                onSaveMessage(systemMsg);
+                if (onUpdateData) onUpdateData();
+                setShowReceiptUploader(false);
+                setReceiptInitialImage(null);
+                clearFile();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* REVIEW MODAL OVERLAY */}
       {showReviewModal && (
         <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
@@ -1192,24 +1231,165 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
       {/* ... (Rest of ChatInterface: Chat Bubbles, Input Bar - Unchanged) ... */}
       <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-lg relative transition-all ${isListening ? 'bg-rose-500 scale-110' : 'bg-emerald-600'}`}>{isListening ? <Mic size={20} className="animate-pulse" /> : <Sparkles size={20} />}{isListening && <span className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full animate-ping"></span>}</div>
-          <div><span className="font-black text-slate-800 dark:text-white tracking-tight block leading-tight text-sm">FinanAI Assistant</span><span className={`text-[10px] font-black uppercase tracking-widest ${isListening ? 'text-rose-500' : 'text-emerald-600'}`}>{isListening ? 'Ouvindo... (Aguardando fala)' : 'Multimodal Active'}</span></div>
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-lg relative transition-all ${isListening ? 'bg-rose-500 scale-110' : 'bg-emerald-600'}`}>
+            {isListening ? <Mic size={20} className="animate-pulse" /> : <Sparkles size={20} />}
+            {isListening && <span className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full animate-ping"></span>}
+          </div>
+          <div>
+            <span className="font-black text-slate-800 dark:text-white tracking-tight block leading-tight text-sm">FinanAI Assistant</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${isListening ? 'text-rose-500' : 'text-emerald-600'}`}>
+              {isListening ? 'Ouvindo... (Aguardando fala)' : 'Multimodal Active'}
+            </span>
+          </div>
         </div>
-        {onClose && <button onClick={onClose} className="p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-500 rounded-xl transition-colors"><X size={20} /></button>}
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setReceiptInitialImage(filePreview || null);
+              setShowReceiptUploader(true);
+            }}
+            className="px-3 py-1.5 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-700 hover:text-white dark:bg-emerald-500/10 dark:hover:bg-emerald-500 dark:text-emerald-400 dark:hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-emerald-500/20 shadow-sm"
+            title="Escanear Recibo com OCR Gemini"
+          >
+            <Receipt size={14} className="shrink-0" />
+            <span className="hidden sm:inline">Upload Recibo OCR</span>
+            <span className="sm:hidden">OCR</span>
+          </button>
+
+          {onClose && (
+            <button 
+              onClick={onClose} 
+              className="p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-500 rounded-xl transition-colors"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
       </div>
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-slate-50/30 dark:bg-slate-950/30">
-        {messages.map((m) => (<div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-[2rem] p-4 md:p-5 shadow-sm border ${m.role === 'user' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-tr-none border-slate-900 dark:border-white' : 'bg-emerald-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border-emerald-100 dark:border-slate-700'}`}><p className="text-xs md:text-sm font-medium leading-relaxed whitespace-pre-line text-current">{m.content || <span className="italic opacity-50">[Sem conteúdo de texto]</span>}</p></div></div>))}
-        {isLoading && <div className="flex justify-start"><div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full px-4 py-3 flex items-center gap-3 shadow-sm"><Loader2 className="animate-spin text-emerald-600" size={16} /><span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">{analysisStage || 'Auditor FinanAI analisando...'}</span></div></div>}
+        {messages.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
+            <div className="w-16 h-16 rounded-3xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-inner">
+              <Sparkles size={28} />
+            </div>
+            <div className="max-w-md space-y-1">
+              <h4 className="text-base font-black text-slate-800 dark:text-white">
+                Como posso ajudar seu financeiro hoje?
+              </h4>
+              <p className="text-xs text-slate-400 font-medium">
+                Envie perguntas, extratos bancários (PDF/OFX), ou faça upload de comprovantes fiscais com OCR automático.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReceiptInitialImage(null);
+                  setShowReceiptUploader(true);
+                }}
+                className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-emerald-500 transition-all flex items-center gap-2 shadow-sm"
+              >
+                <Receipt size={14} className="text-emerald-500" /> Escanear Recibo / Nota Fiscal
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSend("Qual é o saldo atual e fluxo do mês?")}
+                className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-emerald-500 transition-all flex items-center gap-2 shadow-sm"
+              >
+                <DollarSign size={14} className="text-indigo-500" /> Resumo do Saldo Atual
+              </button>
+            </div>
+          </div>
+        )}
+
+        {messages.map((m) => (
+          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] rounded-[2rem] p-4 md:p-5 shadow-sm border ${
+              m.role === 'user' 
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-tr-none border-slate-900 dark:border-white' 
+                : 'bg-emerald-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border-emerald-100 dark:border-slate-700'
+            }`}>
+              <p className="text-xs md:text-sm font-medium leading-relaxed whitespace-pre-line text-current">
+                {m.content || <span className="italic opacity-50">[Sem conteúdo de texto]</span>}
+              </p>
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full px-4 py-3 flex items-center gap-3 shadow-sm">
+              <Loader2 className="animate-spin text-emerald-600" size={16} />
+              <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                {analysisStage || 'Auditor FinanAI analisando...'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
+
       <div className="p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 shrink-0">
-        {selectedFile && <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700 w-fit pr-4 animate-in slide-in-from-bottom-2">{filePreview ? <img src={filePreview} className="w-10 h-10 object-cover rounded-xl border border-slate-200 dark:border-slate-600" alt="Preview" /> : <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-xl flex items-center justify-center border border-slate-200 dark:border-slate-600">{getFileIcon(selectedFile.type, selectedFile.name)}</div>}<div className="flex flex-col"><span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide truncate max-w-[150px]">{selectedFile.name}</span><span className="text-[9px] font-bold text-slate-400 uppercase">{(selectedFile.size / 1024).toFixed(1)} KB</span></div><button onClick={clearFile} className="ml-2 bg-rose-500 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X size={12} /></button></div>}
-        <div className="flex items-center gap-2"><input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.csv,.xlsx,.xls,.ofx,.txt" onChange={handleFileSelect} /><div className="flex gap-1">
+        {selectedFile && (
+          <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700 w-fit pr-4 animate-in slide-in-from-bottom-2">
+            {filePreview ? (
+              <img src={filePreview} className="w-10 h-10 object-cover rounded-xl border border-slate-200 dark:border-slate-600" alt="Preview" />
+            ) : (
+              <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-xl flex items-center justify-center border border-slate-200 dark:border-slate-600">
+                {getFileIcon(selectedFile.type, selectedFile.name)}
+              </div>
+            )}
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide truncate max-w-[150px]">
+                {selectedFile.name}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">
+                {(selectedFile.size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+
+            {/* If image or PDF, show instant OCR button */}
+            {filePreview && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReceiptInitialImage(filePreview);
+                  setShowReceiptUploader(true);
+                }}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors flex items-center gap-1 shadow-sm"
+                title="Extrair dados com Gemini OCR"
+              >
+                <Sparkles size={11} /> OCR Recibo
+              </button>
+            )}
+
+            <button onClick={clearFile} className="ml-2 bg-rose-500 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.csv,.xlsx,.xls,.ofx,.txt" onChange={handleFileSelect} />
+          <div className="flex gap-1">
             <button 
               onClick={() => fileInputRef.current?.click()} 
               className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-emerald-600 rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-slate-100 dark:border-slate-700"
               title="Anexar Arquivo"
             >
               <Paperclip size={20} />
+            </button>
+            <button 
+              onClick={() => {
+                setReceiptInitialImage(null);
+                setShowReceiptUploader(true);
+              }} 
+              className="w-12 h-12 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-emerald-100 dark:border-emerald-900/50"
+              title="Leitor de Recibos OCR (Gemini Vision)"
+            >
+              <Receipt size={20} />
             </button>
             <button 
               onClick={() => {
@@ -1220,12 +1400,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                 }
               }} 
               className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 border border-slate-100 dark:border-slate-700"
-              title="Escanear Recibo (Câmera)"
+              title="Tirar Foto Recibo (Câmera)"
             >
               <Camera size={20} />
             </button>
           </div>
-<div className="flex-1 relative group"><input className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" value={input} onChange={(e) => setInput(e.target.value)} onPaste={handlePaste} placeholder="Digite..." onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><div className="absolute right-2 top-2 flex gap-1"><button onClick={toggleListening} className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} title="Falar Comando">{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button><button onClick={() => handleSend()} className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"><Send size={16} /></button></div></div></div>
+          <div className="flex-1 relative group">
+            <input 
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-24 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/20 transition-all font-medium text-xs md:text-sm text-slate-900 dark:text-white" 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              onPaste={handlePaste} 
+              placeholder="Digite, cole um print do recibo ou envie um arquivo..." 
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+            />
+            <div className="absolute right-2 top-2 flex gap-1">
+              <button 
+                onClick={toggleListening} 
+                className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-rose-100 dark:bg-rose-900 text-rose-600 animate-pulse' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`} 
+                title="Falar Comando"
+              >
+                {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+              <button 
+                onClick={() => handleSend()} 
+                className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl flex items-center justify-center hover:bg-emerald-600 transition-all active:scale-90"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
