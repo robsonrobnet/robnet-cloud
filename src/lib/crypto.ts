@@ -30,6 +30,9 @@ export const decryptValue = (encryptedValue: string): string => {
 export const saveSecureSetting = (key: string, value: string) => {
   const encrypted = encryptValue(value);
   localStorage.setItem(`secure_${key}`, encrypted);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('finanai_credentials_updated', { detail: { key } }));
+  }
 };
 
 /**

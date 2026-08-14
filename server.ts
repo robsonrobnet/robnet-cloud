@@ -165,9 +165,28 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
   }
 
   const parts: any[] = [{ text: input }];
-  if (attachment) {
-    const base64Data = attachment.data.includes('base64,') ? attachment.data.split(',')[1] : attachment.data;
-    parts.push({ inlineData: { mimeType: attachment.mimeType, data: base64Data } });
+  if (attachment && attachment.data) {
+    const mime = (attachment.mimeType || '').toLowerCase();
+    const isTextual = mime.startsWith('text/') || mime.includes('csv') || mime.includes('ofx') || mime.includes('json') || mime.includes('xml');
+
+    if (isTextual) {
+      try {
+        let textContent = attachment.data;
+        if (attachment.data.includes('base64,')) {
+          textContent = Buffer.from(attachment.data.split('base64,')[1], 'base64').toString('utf-8');
+        } else if (!attachment.data.startsWith('<') && !attachment.data.includes('\n') && attachment.data.length > 50) {
+          // Possível base64 sem prefixo
+          textContent = Buffer.from(attachment.data, 'base64').toString('utf-8');
+        }
+        parts.push({ text: `\n\n--- DOCUMENTO/EXTRATO ANEXADO (${attachment.mimeType || 'Extrato'}) ---\n${textContent}\n--- FIM DO DOCUMENTO ---` });
+      } catch (err) {
+        const base64Data = attachment.data.includes('base64,') ? attachment.data.split(',')[1] : attachment.data;
+        parts.push({ inlineData: { mimeType: attachment.mimeType || 'text/plain', data: base64Data } });
+      }
+    } else {
+      const base64Data = attachment.data.includes('base64,') ? attachment.data.split(',')[1] : attachment.data;
+      parts.push({ inlineData: { mimeType: attachment.mimeType || 'application/pdf', data: base64Data } });
+    }
   }
 
   const contents: any[] = [];
@@ -204,11 +223,28 @@ async function callOpenAI(apiKey: string, modelName: string, systemPrompt: strin
   }
 
   const userContent: any[] = [{ type: 'text', text: input }];
-  if (attachment) {
-    userContent.push({
-      type: 'image_url',
-      image_url: { url: attachment.data }
-    });
+  if (attachment && attachment.data) {
+    const mime = (attachment.mimeType || '').toLowerCase();
+    const isImage = mime.startsWith('image/');
+    if (isImage) {
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: attachment.data }
+      });
+    } else {
+      try {
+        let textContent = attachment.data;
+        if (attachment.data.includes('base64,')) {
+          textContent = Buffer.from(attachment.data.split('base64,')[1], 'base64').toString('utf-8');
+        }
+        userContent.push({
+          type: 'text',
+          text: `\n\n--- DOCUMENTO/EXTRATO ANEXADO (${attachment.mimeType || 'Extrato'}) ---\n${textContent}\n--- FIM DO DOCUMENTO ---`
+        });
+      } catch (err) {
+        // Fallback
+      }
+    }
   }
   messages.push({ role: 'user', content: userContent });
 

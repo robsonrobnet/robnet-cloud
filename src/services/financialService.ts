@@ -2,7 +2,7 @@
 // services/financialService.ts
 
 import { supabase, formatSupabaseError } from '../lib/supabase';
-import { Transaction, Category, ChatMessage, FinancialSummary, User, CRMLeadStatus, CRMActivity, AppView, CRMLead } from '../types';
+import { Transaction, Category, ChatMessage, FinancialSummary, User, CRMLeadStatus, CRMActivity, AppView, CRMLead, BankAccount, Supplier, ShopCustomer } from '../types';
 
 export const FinancialService = {
   /**
@@ -614,6 +614,389 @@ export const FinancialService = {
     
     if (error) return [];
     return data;
+  },
+
+  // ==========================================
+  // BANK ACCOUNTS (Contas Bancárias)
+  // ==========================================
+  async getBankAccounts(companyId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('name', { ascending: true });
+      if (error) {
+        console.warn("Tabela bank_accounts pode não existir ainda:", error.message);
+        return [] as BankAccount[];
+      }
+      return (data || []) as BankAccount[];
+    } catch (err) {
+      console.warn("Erro ao buscar contas bancárias:", err);
+      return [] as BankAccount[];
+    }
+  },
+
+  async getOrCreateBankAccount(companyId: string, bankName: string, bankCode?: string) {
+    if (!bankName || !bankName.trim()) return null;
+    const cleanName = bankName.trim();
+    try {
+      // 1. Tentar encontrar conta bancária existente pelo nome
+      const existing = await this.getBankAccounts(companyId);
+      const match = existing.find(b => 
+        b.name.toLowerCase() === cleanName.toLowerCase() ||
+        b.name.toLowerCase().includes(cleanName.toLowerCase()) ||
+        cleanName.toLowerCase().includes(b.name.toLowerCase())
+      );
+      if (match) return match;
+
+      // 2. Criar se não existir
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .insert([{
+          company_id: companyId,
+          name: cleanName,
+          bank_code: bankCode || null,
+          account_type: 'CHECKING',
+          initial_balance: 0,
+          current_balance: 0,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+      
+      if (error) {
+        console.warn("Não foi possível criar banco no DB (usando fallback local):", error.message);
+        return {
+          id: `bank_${Date.now()}`,
+          company_id: companyId,
+          name: cleanName,
+          bank_code: bankCode
+        } as BankAccount;
+      }
+      return data as BankAccount;
+    } catch (err) {
+      console.warn("Erro ao obter/criar conta bancária:", err);
+      return {
+        id: `bank_${Date.now()}`,
+        company_id: companyId,
+        name: cleanName,
+        bank_code: bankCode
+      } as BankAccount;
+    }
+  },
+
+  async addBankAccount(bank: Partial<BankAccount>) {
+    const { data, error } = await supabase
+      .from('bank_accounts')
+      .insert([bank])
+      .select()
+      .single();
+    if (error) throw error;
+    return data as BankAccount;
+  },
+
+  async updateBankAccount(id: string, bank: Partial<BankAccount>) {
+    const { data, error } = await supabase
+      .from('bank_accounts')
+      .update(bank)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as BankAccount;
+  },
+
+  async deleteBankAccount(id: string) {
+    const { error } = await supabase
+      .from('bank_accounts')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  // ==========================================
+  // CATEGORIAS INTELIGENTES POR TIPO DE OPERAÇÃO
+  // ==========================================
+  async getOrCreateCategory(
+    companyId: string, 
+    name: string, 
+    type: 'INCOME' | 'EXPENSE' | 'BOTH' = 'BOTH', 
+    icon = 'Tag', 
+    color = '#6366F1'
+  ): Promise<Category | null> {
+    if (!name || !name.trim()) return null;
+    const cleanName = name.trim();
+    try {
+      const categories = await this.getCategories(companyId);
+      const found = categories.find(c => c.name.toLowerCase() === cleanName.toLowerCase());
+      if (found) return found;
+
+      const { data, error } = await supabase
+        .from('categories')
+        .insert([{
+          company_id: companyId,
+          name: cleanName,
+          color: color || '#6366F1',
+          icon: icon || 'Tag',
+          type: type || 'BOTH',
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+      
+      if (error) {
+        console.warn("Falha ao criar categoria no banco:", error.message);
+        return null;
+      }
+      return data as Category;
+    } catch (err) {
+      console.warn("Erro ao buscar/criar categoria:", err);
+      return null;
+    }
+  },
+
+  // ==========================================
+  // CADASTRO AUTOMÁTICO DE ENTIDADES (CLIENTES & FORNECEDORES)
+  // ==========================================
+  async getOrCreateCustomer(companyId: string, customerData: { name: string; document_number?: string; email?: string; phone?: string }) {
+    if (!customerData.name || !customerData.name.trim()) return null;
+    const cleanName = customerData.name.trim();
+    try {
+      // 1. Checar se já existe em shop_customers
+      const { data: existingShop } = await supabase
+        .from('shop_customers')
+        .select('*')
+        .eq('company_id', companyId)
+        .ilike('name', `%${cleanName}%`)
+        .limit(1);
+
+      if (existingShop && existingShop.length > 0) {
+        return existingShop[0] as ShopCustomer;
+      }
+
+      // 2. Criar novo cliente
+      const { data, error } = await supabase
+        .from('shop_customers')
+        .insert([{
+          company_id: companyId,
+          name: cleanName,
+          document_number: customerData.document_number || null,
+          email: customerData.email || '',
+          phone: customerData.phone || '',
+          type: customerData.document_number && customerData.document_number.replace(/\D/g, '').length > 11 ? 'WHOLESALE' : 'RETAIL',
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.warn("Erro ao criar shop_customer:", error.message);
+      }
+
+      // 3. Também sincronizar com CRM Contacts se possível
+      try {
+        await supabase.from('crm_contacts').insert([{
+          company_id: companyId,
+          name: cleanName,
+          email: customerData.email || '',
+          phone: customerData.phone || '',
+          organization: cleanName,
+          tags: ['Extrato Bancário', 'Recebimento de Cliente'],
+          created_at: new Date().toISOString()
+        }]);
+      } catch (crmErr) {
+        // Ignora se não existir
+      }
+
+      return data as ShopCustomer;
+    } catch (err) {
+      console.warn("Erro em getOrCreateCustomer:", err);
+      return null;
+    }
+  },
+
+  async getOrCreateSupplier(companyId: string, supplierData: { name: string; document_number?: string; email?: string; phone?: string; category_name?: string }) {
+    if (!supplierData.name || !supplierData.name.trim()) return null;
+    const cleanName = supplierData.name.trim();
+    try {
+      const { data: existing } = await supabase
+        .from('suppliers')
+        .select('*')
+        .eq('company_id', companyId)
+        .ilike('name', `%${cleanName}%`)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return existing[0] as Supplier;
+      }
+
+      const { data, error } = await supabase
+        .from('suppliers')
+        .insert([{
+          company_id: companyId,
+          name: cleanName,
+          document_number: supplierData.document_number || null,
+          email: supplierData.email || '',
+          phone: supplierData.phone || '',
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.warn("Erro ao cadastrar supplier:", error.message);
+      }
+      return data as Supplier;
+    } catch (err) {
+      console.warn("Erro em getOrCreateSupplier:", err);
+      return null;
+    }
+  },
+
+  // ==========================================
+  // CONCILIAÇÃO BANCÁRIA & PREVENÇÃO DE DUPLICIDADE
+  // ==========================================
+  /**
+   * Compara os lançamentos extraídos do extrato com o banco de dados.
+   * Evita duplicidade de lançamentos e identifica quais são novos vs já conciliados.
+   */
+  async reconcileBankStatement(
+    companyId: string, 
+    extractedItems: Partial<Transaction>[]
+  ): Promise<{
+    reconciledList: Array<Partial<Transaction> & { 
+      reconciliationStatus: 'NEW' | 'RECONCILED' | 'DUPLICATE_SKIPPED';
+      matchedTransactionId?: string;
+      matchReason?: string;
+    }>;
+    summary: {
+      total: number;
+      newCount: number;
+      reconciledCount: number;
+      duplicateSkippedCount: number;
+      totalIncome: number;
+      totalExpense: number;
+    };
+  }> {
+    try {
+      // 1. Buscar transações existentes da empresa (últimos 12 meses)
+      const { data: existingTransactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('company_id', companyId);
+
+      const dbList = (existingTransactions || []) as Transaction[];
+
+      let newCount = 0;
+      let reconciledCount = 0;
+      let duplicateSkippedCount = 0;
+      let totalIncome = 0;
+      let totalExpense = 0;
+
+      const reconciledList = extractedItems.map(item => {
+        const itemAmount = Math.abs(Number(item.amount) || 0);
+        const itemDate = item.date || new Date().toISOString().split('T')[0];
+        const itemType = item.type || 'EXPENSE';
+        const itemDesc = (item.description || '').toLowerCase().trim();
+
+        if (itemType === 'INCOME') {
+          totalIncome += itemAmount;
+        } else {
+          totalExpense += itemAmount;
+        }
+
+        // Buscar match no banco de dados
+        // Critérios: Mesmo valor (diferença < 0.05), mesmo tipo, e data próxima (até 3 dias de compensação)
+        const match = dbList.find(dbT => {
+          const dbAmount = Math.abs(Number(dbT.amount) || 0);
+          const isSameAmount = Math.abs(dbAmount - itemAmount) < 0.05;
+          const isSameType = dbT.type === itemType;
+          
+          if (!isSameAmount || !isSameType) return false;
+
+          // Checar datas (tolerância de até 3 dias úteis para compensação de TED/Boleto/Cartão)
+          const d1 = new Date(dbT.date || dbT.due_date || '').getTime();
+          const d2 = new Date(itemDate).getTime();
+          const diffDays = Math.abs(d1 - d2) / (1000 * 60 * 60 * 24);
+          
+          const isDateClose = isNaN(diffDays) || diffDays <= 3;
+          if (!isDateClose) return false;
+
+          // Se a descrição tiver palavras em comum ou o valor e data forem idênticos
+          const dbDesc = (dbT.description || '').toLowerCase();
+          const words = itemDesc.split(/\s+/).filter(w => w.length > 3);
+          const hasCommonWord = words.some(w => dbDesc.includes(w));
+
+          return diffDays === 0 || hasCommonWord;
+        });
+
+        if (match) {
+          // Lançamento já existe no sistema!
+          // Se estava PENDING, agora está conciliado como PAID no extrato
+          if (match.status === 'PENDING') {
+            reconciledCount++;
+            return {
+              ...item,
+              id: match.id,
+              status: 'PAID' as any,
+              is_reconciled: true,
+              reconciliation_id: match.id,
+              reconciliationStatus: 'RECONCILED' as const,
+              matchedTransactionId: match.id,
+              matchReason: `Conciliado com lançamento existente "${match.description}" de ${match.date}`
+            };
+          } else {
+            // Já estava lançado e pago -> evitar duplicidade!
+            duplicateSkippedCount++;
+            return {
+              ...item,
+              id: match.id,
+              is_reconciled: true,
+              reconciliation_id: match.id,
+              reconciliationStatus: 'DUPLICATE_SKIPPED' as const,
+              matchedTransactionId: match.id,
+              matchReason: `Lançamento idêntico já existente no fluxo em ${match.date} (duplicidade evitada)`
+            };
+          }
+        }
+
+        // Lançamento novo
+        newCount++;
+        return {
+          ...item,
+          status: 'PAID' as any,
+          is_reconciled: true,
+          reconciliationStatus: 'NEW' as const,
+          matchReason: 'Novo lançamento identificado no extrato bancário'
+        };
+      });
+
+      return {
+        reconciledList,
+        summary: {
+          total: extractedItems.length,
+          newCount,
+          reconciledCount,
+          duplicateSkippedCount,
+          totalIncome,
+          totalExpense
+        }
+      };
+    } catch (err) {
+      console.error("Erro na conciliação de extrato bancário:", err);
+      return {
+        reconciledList: extractedItems.map(t => ({ ...t, reconciliationStatus: 'NEW' as const })),
+        summary: {
+          total: extractedItems.length,
+          newCount: extractedItems.length,
+          reconciledCount: 0,
+          duplicateSkippedCount: 0,
+          totalIncome: 0,
+          totalExpense: 0
+        }
+      };
+    }
   },
 
   /**

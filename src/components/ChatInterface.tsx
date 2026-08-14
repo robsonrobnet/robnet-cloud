@@ -542,61 +542,168 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
 
     setPendingProducts([]);
 
-    // --- LÓGICA DE INSERÇÃO AUTOMÁTICA DE TRANSAÇÕES ---
+    // --- LÓGICA DE CADASTRO AUTOMÁTICO DE CONTAS BANCÁRIAS ---
+    let createdBankAccountsMap: Record<string, string> = {};
+    if (result.extractedBankAccounts && result.extractedBankAccounts.length > 0) {
+      for (const bank of result.extractedBankAccounts) {
+        if (!bank.name) continue;
+        try {
+          const bankRecord = await FinancialService.getOrCreateBankAccount(currentUser.company_id, bank.name, bank.bank_code);
+          if (bankRecord) {
+            createdBankAccountsMap[bank.name.toLowerCase()] = bankRecord.id;
+            result.textResponse += `\n🏦 **CONTA BANCÁRIA VINCULADA:** *${bank.name}* configurada no sistema.`;
+            didChangeDb = true;
+          }
+        } catch (bErr: any) {
+          console.warn("Erro ao vincular banco:", bErr);
+        }
+      }
+    }
+
+    // --- LÓGICA DE CADASTRO AUTOMÁTICO DE CATEGORIAS INTELIGENTES ---
+    if (result.extractedCategories && result.extractedCategories.length > 0) {
+      for (const cat of result.extractedCategories) {
+        if (!cat.name) continue;
+        try {
+          const newCat = await FinancialService.getOrCreateCategory(
+            currentUser.company_id,
+            cat.name,
+            cat.type || 'BOTH',
+            cat.icon || 'Tag',
+            cat.color || '#6366F1'
+          );
+          if (newCat) {
+            didChangeDb = true;
+          }
+        } catch (cErr: any) {
+          console.warn("Erro ao criar categoria automática:", cErr);
+        }
+      }
+    }
+
+    // --- LÓGICA DE CADASTRO AUTOMÁTICO DE CLIENTES DE RECEBIMENTO (ENTRADAS) ---
+    if (result.extractedCustomers && result.extractedCustomers.length > 0) {
+      for (const cust of result.extractedCustomers) {
+        if (!cust.name) continue;
+        try {
+          await FinancialService.getOrCreateCustomer(currentUser.company_id, cust);
+          result.textResponse += `\n🏢 **CLIENTE CADASTRADO (ENTRADAS):** *${cust.name}* adicionado ao controle de clientes.`;
+          didChangeDb = true;
+        } catch (custErr: any) {
+          console.warn("Erro ao cadastrar cliente de entrada:", custErr);
+        }
+      }
+    }
+
+    // --- LÓGICA DE CADASTRO AUTOMÁTICO DE FORNECEDORES (SAÍDAS) ---
+    if (result.extractedSuppliers && result.extractedSuppliers.length > 0) {
+      for (const supp of result.extractedSuppliers) {
+        if (!supp.name) continue;
+        try {
+          await FinancialService.getOrCreateSupplier(currentUser.company_id, supp);
+          result.textResponse += `\n🏭 **FORNECEDOR CADASTRADO (SAÍDAS):** *${supp.name}* ${supp.category_name ? `(${supp.category_name})` : ''} registrado no sistema.`;
+          didChangeDb = true;
+        } catch (suppErr: any) {
+          console.warn("Erro ao cadastrar fornecedor de saída:", suppErr);
+        }
+      }
+    }
+
+    // --- LÓGICA DE CONCILIAÇÃO BANCÁRIA & INSERÇÃO DE TRANSAÇÕES ---
     if (result.extractedTransactions && result.extractedTransactions.length > 0) {
+      // 1. Executar Conciliação Inteligente com o Histórico do Banco de Dados
+      const reconciliationResult = await FinancialService.reconcileBankStatement(
+        currentUser.company_id,
+        result.extractedTransactions
+      );
+
+      const { reconciledList, summary: recSummary } = reconciliationResult;
+
+      // 2. Tratar conciliações já existentes (marcar como PAID / Reconciled se estavam PENDING)
+      let reconciledUpdatesCount = 0;
+      for (const item of reconciledList) {
+        if (item.reconciliationStatus === 'RECONCILED' && item.matchedTransactionId) {
+          try {
+            await supabase.from('transactions').update({
+              status: 'PAID',
+              is_reconciled: true,
+              bank_name: item.bank_name || undefined,
+              operation_type: item.operation_type || undefined
+            }).eq('id', item.matchedTransactionId);
+            reconciledUpdatesCount++;
+            didChangeDb = true;
+          } catch (recUpdErr) {
+            console.warn("Erro ao atualizar transação conciliada:", recUpdErr);
+          }
+        }
+      }
+
+      // 3. Filtrar apenas os itens novos a serem inseridos
+      const newItemsToInsert = reconciledList.filter(item => item.reconciliationStatus === 'NEW');
+
       if (isAutoProcessFile || (result.extractedTransactions.length === 1 && !result.updates?.length && !result.deletions?.length)) {
-          // Processa Automaticamente se for arquivo ou se for apenas UM lançamento único sem outras pendências
+          // Processa Automaticamente se for arquivo ou se for apenas UM lançamento único
           let importedCount = 0;
           let directInserted = false;
 
-          for (const t of result.extractedTransactions) {
-              // Tenta resolver a categoria pelo nome sugerido pela IA
+          for (const t of newItemsToInsert) {
+              // Tenta resolver a categoria pelo nome sugerido pela IA ou cria categoria inteligente
               let resolvedCategoryId = t.category_id;
               if (!resolvedCategoryId && t.category) {
                   const found = categories.find(c => c.name.toLowerCase() === t.category?.toLowerCase());
-                  if (found) resolvedCategoryId = found.id;
+                  if (found) {
+                    resolvedCategoryId = found.id;
+                  } else {
+                    const autoCat = await FinancialService.getOrCreateCategory(currentUser.company_id, t.category, t.type || 'BOTH');
+                    if (autoCat) resolvedCategoryId = autoCat.id;
+                  }
               }
 
-              // Se temos a categoria resolvida (ou se é auto-processamento de arquivo q pode ir sem), inserimos direto
-              if (isAutoProcessFile || resolvedCategoryId) {
-                  const payload = {
-                      ...t,
-                      category_id: resolvedCategoryId,
-                      scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'),
-                      company_id: currentUser.company_id,
-                      date: t.date || new Date().toISOString().split('T')[0],
-                      category: t.category || categories.find(c => c.id === resolvedCategoryId)?.name || 'Outros'
-                  };
-                  await onAddTransaction(payload as any);
-                  importedCount++;
-                  directInserted = true;
-              } else {
-                  // Se caiu aqui e NÃO é arquivo, significa que é um lançamento único mas SEM categoria resolvida
-                  // Então abrimos o modal para o usuário escolher a categoria
-                  setPendingTransactions([
-                      {
-                        ...t, 
-                        scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'), 
-                        company_id: currentUser.company_id, 
-                        date: t.date || new Date().toISOString().split('T')[0]
-                      }
-                  ]);
-                  hasPendingActions = true;
+              // Associar ID da conta bancária se o banco foi mapeado
+              let bankAccId = t.bank_account_id;
+              if (!bankAccId && t.bank_name) {
+                bankAccId = createdBankAccountsMap[t.bank_name.toLowerCase()] || undefined;
               }
+
+              const payload = {
+                  ...t,
+                  category_id: resolvedCategoryId,
+                  bank_account_id: bankAccId,
+                  scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'),
+                  company_id: currentUser.company_id,
+                  date: t.date || new Date().toISOString().split('T')[0],
+                  category: t.category || categories.find(c => c.id === resolvedCategoryId)?.name || 'Outros',
+                  status: 'PAID',
+                  is_reconciled: true
+              };
+              await onAddTransaction(payload as any);
+              importedCount++;
+              directInserted = true;
           }
           
-          if (directInserted) {
-              if (isAutoProcessFile) {
-                result.textResponse += `\n\n✅ **IMPORTAÇÃO AUTOMÁTICA:** ${importedCount} registros processados do arquivo.`;
-              } else {
-                const lastT = result.extractedTransactions[0];
-                result.textResponse += `\n\n✅ **LANÇAMENTO DIRETO:** "${lastT.description}" de R$ ${lastT.amount} registrado em *${lastT.category}*.`;
-              }
-              if (!hasPendingActions) setPendingTransactions([]); 
+          // Adicionar Resumo Executivo de Conciliação no texto de resposta da IA
+          if (recSummary.total > 0) {
+            result.textResponse += `\n\n📊 **RESUMO DA CONCILIAÇÃO BANCÁRIA:**`;
+            result.textResponse += `\n• Total de Lançamentos Analisados: *${recSummary.total}*`;
+            result.textResponse += `\n• ✨ **Novos Lançamentos no Fluxo:** *${importedCount}*`;
+            if (recSummary.duplicateSkippedCount > 0) {
+              result.textResponse += `\n• 🛡️ **Duplicidades Prevenidas:** *${recSummary.duplicateSkippedCount}* lançamentos já existentes foram ignorados com segurança.`;
+            }
+            if (reconciledUpdatesCount > 0) {
+              result.textResponse += `\n• 🔄 **Lançamentos Conciliados:** *${reconciledUpdatesCount}* pendências foram liquidadas e conciliadas.`;
+            }
           }
+          if (!hasPendingActions) setPendingTransactions([]); 
       } else {
-          // Processo Manual (Múltiplos ou com pendências complexas) -> Abre Modal
-          setPendingTransactions(result.extractedTransactions.map((t: any) => ({...t, scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'), company_id: currentUser.company_id, date: t.date || new Date().toISOString().split('T')[0]})));
+          // Processo Manual com Modal de Conferência
+          setPendingTransactions(reconciledList.map((t: any) => ({
+            ...t, 
+            scope: forcedScope !== 'AUTO' ? forcedScope : (t.scope || 'BUSINESS'), 
+            company_id: currentUser.company_id, 
+            date: t.date || new Date().toISOString().split('T')[0],
+            status: 'PAID',
+            is_reconciled: true
+          })));
           hasPendingActions = true;
       }
     } else {
@@ -987,7 +1094,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                   {pendingTransactions.length > 0 && (
                       <div className="space-y-4">
                           <div className="flex items-center justify-between">
-                            <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2"><Sparkles size={14}/> Novos Lançamentos ({pendingTransactions.length})</h4>
+                            <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2"><Sparkles size={14}/> Lançamentos / Conciliação ({pendingTransactions.length})</h4>
                             <button 
                                 onClick={handleConfirmAllCreations}
                                 className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all shadow-sm flex items-center gap-2"
@@ -996,8 +1103,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                             </button>
                           </div>
                           <div className="space-y-4">
-                            {pendingTransactions.map((item, idx) => (
+                            {pendingTransactions.map((item: any, idx) => (
                                 <div key={idx} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4">
+                                    {/* STATUS DE CONCILIAÇÃO & BADGES */}
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {item.reconciliationStatus === 'DUPLICATE_SKIPPED' ? (
+                                          <span className="text-[9px] font-black uppercase bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                            🛡️ Já Existente (Evita Duplicidade)
+                                          </span>
+                                        ) : item.reconciliationStatus === 'RECONCILED' ? (
+                                          <span className="text-[9px] font-black uppercase bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                            🔄 Conciliado c/ Pendência
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] font-black uppercase bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                            ✨ Novo Lançamento
+                                          </span>
+                                        )}
+                                        {item.bank_name && (
+                                          <span className="text-[9px] font-black uppercase bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                            🏦 {item.bank_name}
+                                          </span>
+                                        )}
+                                        {item.operation_type && (
+                                          <span className="text-[9px] font-black uppercase bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-2.5 py-1 rounded-full">
+                                            {item.operation_type}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {item.entity_name && (
+                                        <span className="text-[9px] font-bold text-slate-500 truncate max-w-[200px]">
+                                          🏢 {item.entity_name}
+                                        </span>
+                                      )}
+                                    </div>
+
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label><input className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-sm font-bold text-slate-800 dark:text-white" value={item.description || ''} onChange={(e) => updatePending(idx, 'description', e.target.value)}/></div>
                                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$)</label><div className="relative"><DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 pl-8 text-sm font-bold text-slate-800 dark:text-white" value={item.amount || ''} onChange={(e) => updatePending(idx, 'amount', Number(e.target.value))}/></div></div>
@@ -1008,8 +1149,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessages, on
                                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo</label><div className="flex gap-1 p-1 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-600"><button onClick={() => updatePending(idx, 'type', 'EXPENSE')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'EXPENSE' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-400'}`}>Saída</button><button onClick={() => updatePending(idx, 'type', 'INCOME')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${item.type === 'INCOME' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>Entrada</button></div></div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {item.scope === 'BUSINESS' && (<div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa Vinculada</label><select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20" value={item.company_id || ''} onChange={(e) => updatePending(idx, 'company_id', e.target.value)}><option value="">Selecione a Empresa...</option>{companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>)}
-                                        <div className={item.scope === 'PERSONAL' ? 'md:col-span-2' : ''}><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Tag size={10} /> Categoria {(!item.category_id && !item.category) && <span className="text-rose-500">*</span>}</label><select className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 ${(!item.category_id && !item.category) ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200 dark:border-slate-600'}`} value={item.category_id || ''} onChange={(e) => updatePending(idx, 'category_id', e.target.value)}><option value="">Selecione...</option>{categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Banco</label><input className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white" placeholder="Ex: Itaú, Nubank..." value={item.bank_name || ''} onChange={(e) => updatePending(idx, 'bank_name', e.target.value)}/></div>
+                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1"><Tag size={10} /> Categoria {(!item.category_id && !item.category) && <span className="text-rose-500">*</span>}</label><select className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl p-3 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 ${(!item.category_id && !item.category) ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200 dark:border-slate-600'}`} value={item.category_id || ''} onChange={(e) => updatePending(idx, 'category_id', e.target.value)}><option value="">Selecione...</option>{categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}</select></div>
                                     </div>
 
                                     <div className="flex gap-2 pt-2"><button onClick={() => { const newList = [...pendingTransactions]; newList.splice(idx, 1); setPendingTransactions(newList); checkIfEmpty(); }} className="flex-1 py-3 bg-slate-100 dark:bg-slate-900 text-slate-500 rounded-xl font-black text-xs uppercase hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-900/30 transition-all">Descartar</button><button onClick={() => handleConfirmTransaction(idx, item)} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black text-xs uppercase hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-400 transition-all flex items-center justify-center gap-2"><Check size={14} /> Confirmar</button></div>

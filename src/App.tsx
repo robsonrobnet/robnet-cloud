@@ -2,7 +2,7 @@
 // App.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Menu, Loader2, ChevronLeft, ChevronRight, Calendar, Moon, Sun } from 'lucide-react';
+import { Menu, Loader2, ChevronLeft, ChevronRight, Calendar, Moon, Sun, Sparkles } from 'lucide-react';
 import { Transaction, AppView, ChatMessage, User, Language, Category, Company, TransactionScope } from './types';
 import Dashboard from './components/Dashboard';
 import ChatInterface from './components/ChatInterface';
@@ -23,6 +23,8 @@ import { translations } from './lib/translations';
 import { FinancialService } from './services/financialService';
 import { supabase } from './lib/supabase';
 import { BookOpen, HelpCircle } from 'lucide-react';
+import { loadSecureSetting } from './lib/crypto';
+import { testGeminiConnection } from './services/geminiService';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -37,6 +39,17 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguage] = useState<Language>('pt');
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [iaStatus, setIaStatus] = useState<{
+    status: 'ONLINE' | 'OFFLINE' | 'NO_KEY' | 'CHECKING';
+    message: string;
+    hasKey: boolean;
+    isChecking: boolean;
+  }>({
+    status: 'CHECKING',
+    message: 'Verificando chave da API Gemini no armazenamento local...',
+    hasKey: false,
+    isChecking: true,
+  });
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Real-time Clock Effect
@@ -123,13 +136,72 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  const checkIAStatus = useCallback(async () => {
+    setIaStatus(prev => ({ ...prev, isChecking: true }));
+    try {
+      const rawSecKey = loadSecureSetting('gemini_key');
+      const rawPlainKey = localStorage.getItem('gemini_key');
+      const localKey = (rawSecKey || rawPlainKey || '').trim();
+
+      if (!localKey || localKey.includes('...') || localKey === '') {
+        setIaStatus({
+          status: 'NO_KEY',
+          message: 'Nenhuma API Key do Gemini configurada no armazenamento local',
+          hasKey: false,
+          isChecking: false,
+        });
+        return;
+      }
+
+      // Validar a API Key do Gemini no backend
+      const res = await testGeminiConnection(localKey);
+      if (res.success) {
+        setIaStatus({
+          status: 'ONLINE',
+          message: res.message || 'API Key do Gemini válida e operacional no armazenamento local',
+          hasKey: true,
+          isChecking: false,
+        });
+      } else {
+        setIaStatus({
+          status: 'OFFLINE',
+          message: res.message || 'Chave da API Gemini no armazenamento local é inválida ou inacessível',
+          hasKey: true,
+          isChecking: false,
+        });
+      }
+    } catch (err: any) {
+      setIaStatus({
+        status: 'OFFLINE',
+        message: err?.message || 'Erro ao validar chave Gemini',
+        hasKey: true,
+        isChecking: false,
+      });
+    }
+  }, []);
+
   useEffect(() => {
     const checkConn = async () => {
       const isConnected = await FinancialService.testConnection();
       setDbConnected(isConnected);
     };
     checkConn();
-  }, []);
+    checkIAStatus();
+
+    const handleCredentialsUpdate = (event: any) => {
+      if (!event.detail || !event.detail.key || event.detail.key === 'gemini_key' || event.detail.key.includes('gemini')) {
+        checkIAStatus();
+      }
+    };
+
+    window.addEventListener('finanai_credentials_updated', handleCredentialsUpdate);
+    window.addEventListener('storage', checkIAStatus);
+
+    return () => {
+      window.removeEventListener('finanai_credentials_updated', handleCredentialsUpdate);
+      window.removeEventListener('storage', checkIAStatus);
+    };
+  }, [checkIAStatus]);
 
   // Performance: useCallback garante que a função não seja recriada a cada render,
   // evitando que componentes filhos (como TransactionList) renderizem sem necessidade.
@@ -454,14 +526,60 @@ const App: React.FC = () => {
              </div>
           )}
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
              {/* DB Status Flag */}
-             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${dbConnected === true ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : dbConnected === false ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${dbConnected === true ? 'bg-emerald-500 animate-pulse' : dbConnected === false ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
-                <span className="text-[9px] font-black uppercase tracking-widest">
+             <div 
+               title={dbConnected === true ? 'Banco de Dados Supabase Conectado' : dbConnected === false ? 'Banco de Dados Desconectado' : 'Verificando conexão com o Banco de Dados...'}
+               className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${dbConnected === true ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400' : dbConnected === false ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/50 text-rose-600 dark:text-rose-400' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}
+             >
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${dbConnected === true ? 'bg-emerald-500 animate-pulse' : dbConnected === false ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
+                <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap">
                    {dbConnected === true ? 'DB Online' : dbConnected === false ? 'DB Offline' : 'Checking...'}
                 </span>
              </div>
+
+             {/* IA Status Flag */}
+             <button
+               id="topbar-ia-status-button"
+               type="button"
+               onClick={() => {
+                 if (iaStatus.status === 'NO_KEY' || iaStatus.status === 'OFFLINE') {
+                   setView(AppView.ADMIN);
+                 } else {
+                   checkIAStatus();
+                 }
+               }}
+               title={`${iaStatus.message} • Clique para ${iaStatus.status === 'ONLINE' ? 'revalidar' : 'abrir Configurações'}`}
+               className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer text-left group ${
+                 iaStatus.isChecking
+                   ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
+                   : iaStatus.status === 'ONLINE'
+                   ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 shadow-xs'
+                   : iaStatus.status === 'NO_KEY'
+                   ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 shadow-xs'
+                   : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 shadow-xs'
+               }`}
+             >
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  iaStatus.isChecking
+                    ? 'bg-indigo-400 animate-ping'
+                    : iaStatus.status === 'ONLINE'
+                    ? 'bg-indigo-500 animate-pulse'
+                    : iaStatus.status === 'NO_KEY'
+                    ? 'bg-amber-500'
+                    : 'bg-rose-500'
+                }`}></div>
+                <Sparkles size={11} className={`shrink-0 ${iaStatus.isChecking ? 'animate-spin text-indigo-500' : 'group-hover:rotate-12 transition-transform'}`} />
+                <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap">
+                   {iaStatus.isChecking
+                     ? 'IA Validando...'
+                     : iaStatus.status === 'ONLINE'
+                     ? 'IA Online'
+                     : iaStatus.status === 'NO_KEY'
+                     ? 'IA Sem Chave'
+                     : 'IA Offline'}
+                </span>
+             </button>
 
              {/* Theme Toggle */}
              <button onClick={toggleTheme} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-all">

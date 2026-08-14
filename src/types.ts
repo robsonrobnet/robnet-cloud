@@ -58,7 +58,36 @@ export interface Category {
   name: string;
   color: string;
   icon: string;
+  type?: 'INCOME' | 'EXPENSE' | 'BOTH';
 }
+
+export interface BankAccount {
+  id: string;
+  company_id: string;
+  name: string; // Ex: Nubank, Banco Itaú, Bradesco, Banco do Brasil, Santander, Inter, Caixa, C6 Bank, etc.
+  bank_code?: string; // Ex: 260, 341, 237, 001, 033, 077, 104
+  agency?: string;
+  account_number?: string;
+  account_type?: 'CHECKING' | 'SAVINGS' | 'PAYMENT' | 'INVESTMENT';
+  color?: string;
+  initial_balance?: number;
+  current_balance?: number;
+  created_at?: string;
+}
+
+export type OperationType = 
+  | 'PIX' 
+  | 'TED' 
+  | 'DOC' 
+  | 'BOLETO' 
+  | 'TRANSFER' 
+  | 'CARD' 
+  | 'TAX' 
+  | 'FEE' 
+  | 'YIELD' 
+  | 'PAYROLL' 
+  | 'DEPOSIT'
+  | 'OTHER';
 
 export interface Transaction {
   id: string;
@@ -74,6 +103,15 @@ export interface Transaction {
   scope?: TransactionScope;
   date: string; 
   due_date?: string;
+  bank_account_id?: string;
+  bank_name?: string;
+  operation_type?: OperationType;
+  destination_bank?: string; // Para transferências entre contas/bancos
+  entity_name?: string; // Nome da empresa pagadora (cliente) ou destinatária (fornecedor)
+  entity_type?: 'CUSTOMER' | 'SUPPLIER' | 'INTERNAL_TRANSFER' | 'OTHER';
+  is_reconciled?: boolean;
+  reconciliation_id?: string;
+  reconciliation_status?: 'NEW' | 'RECONCILED' | 'DUPLICATE_SKIPPED';
   is_recurring?: boolean;
   recurrence_period?: 'MONTHLY' | 'WEEKLY' | 'YEARLY';
   recurrence_limit?: number;

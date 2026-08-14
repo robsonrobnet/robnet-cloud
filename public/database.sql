@@ -364,6 +364,38 @@ CREATE TRIGGER update_sales_orders_updated_at BEFORE UPDATE ON sales_orders FOR 
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS recurrence_period TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS recurrence_limit INTEGER;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS contact_email TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS bank_name TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS bank_account_id UUID;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS operation_type TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_bank TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS entity_name TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS entity_type TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN DEFAULT FALSE;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reconciliation_id TEXT;
+
+-- BANK ACCOUNTS (Contas Bancárias)
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bank_code TEXT,
+  agency TEXT,
+  account_number TEXT,
+  account_type TEXT DEFAULT 'CHECKING',
+  color TEXT,
+  initial_balance NUMERIC(15,2) DEFAULT 0,
+  current_balance NUMERIC(15,2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE bank_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users see company bank accounts" ON bank_accounts;
+CREATE POLICY "Users see company bank accounts" ON bank_accounts 
+FOR ALL USING (
+  company_id = get_current_user_company_id()
+) WITH CHECK (
+  company_id = get_current_user_company_id()
+);
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'FREE';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
