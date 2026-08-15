@@ -1,6 +1,5 @@
 
 import express, { Request, Response } from "express";
-import { createServer as createViteServer } from "vite";
 import Stripe from "stripe";
 import * as dotenv from "dotenv";
 import nodemailer from "nodemailer";
@@ -16,14 +15,17 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' })); // Increase limit for XML/PDF attachments
 
-// --- REQUEST LOGGER ---
+// --- CORS & REQUEST LOGGER ---
 app.use((req, res, next) => {
-  console.log(`[Server] ${new Date().toISOString()} - ${req.method} ${req.url}`);
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-supabase-url, x-supabase-key, x-gemini-key, x-gemini-model, x-openai-key, x-openai-model, x-stripe-key, x-evolution-key, x-evolution-url');
+  
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     return res.status(200).send();
   }
+  
+  console.log(`[Server] ${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
 
@@ -1049,8 +1051,9 @@ app.all("/api/test-email", async (req: Request, res: Response) => {
 });
 
 // --- DAILY ALERTS CRON JOB ---
-// Runs every day at 08:00 AM
-cron.schedule("0 8 * * *", async () => {
+// Runs every day at 08:00 AM (only on long-running container runtime, not on Vercel serverless)
+if (!process.env.VERCEL && !process.env.NOW_BUILDER) {
+  cron.schedule("0 8 * * *", async () => {
   console.log("[Cron] Starting daily financial alerts...");
   
   try {
@@ -1161,7 +1164,8 @@ cron.schedule("0 8 * * *", async () => {
   } catch (error) {
     console.error("[Cron] Error sending alerts:", error);
   }
-});
+  });
+}
 
 // Lazy Stripe Initialization (Per-request key retrieval prevents tenant key cross-pollution)
 const getStripe = async (req?: Request) => {
@@ -1792,6 +1796,16 @@ app.post("/api/crm/webhook/incoming", async (req: Request, res: Response) => {
   }
 });
 
+// Global Error Handler to guarantee JSON responses (prevents HTML 500 in serverless)
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error("[Unhandled Express Error]:", err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    error: err.message || "Erro interno no servidor",
+    success: false
+  });
+});
+
 // --- VITE MIDDLEWARE ---
 async function setupVite() {
   if (process.env.VERCEL || process.env.NOW_BUILDER) {
@@ -1800,11 +1814,16 @@ async function setupVite() {
   }
 
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr: any) {
+      console.warn("[Backend] Vite dynamic load skipped:", viteErr.message);
+    }
   } else {
     app.use(express.static("dist"));
     app.get("*", (req: Request, res: Response) => {
