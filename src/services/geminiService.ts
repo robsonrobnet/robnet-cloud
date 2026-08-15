@@ -11,6 +11,117 @@ export interface Attachment {
   data: string;
 }
 
+export const getAIAuthHeaders = () => {
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+  const openaiKey = loadSecureSetting('openai_key') || localStorage.getItem('openai_api_key') || '';
+  const supabaseUrl = loadSecureSetting('supabase_url') || localStorage.getItem('finanai_db_url') || '';
+  const supabaseKey = loadSecureSetting('supabase_key') || localStorage.getItem('finanai_db_key') || '';
+  const geminiModel = localStorage.getItem('gemini_model') || 'gemini-2.5-flash';
+  const openaiModel = localStorage.getItem('openai_model') || 'gpt-4o';
+
+  return {
+    "Content-Type": "application/json",
+    ...(geminiKey ? { "x-gemini-key": geminiKey } : {}),
+    ...(openaiKey ? { "x-openai-key": openaiKey } : {}),
+    ...(supabaseUrl ? { "x-supabase-url": supabaseUrl } : {}),
+    ...(supabaseKey ? { "x-supabase-key": supabaseKey } : {}),
+    ...(geminiModel ? { "x-gemini-model": geminiModel } : {}),
+    ...(openaiModel ? { "x-openai-model": openaiModel } : {})
+  };
+};
+
+// Direct client fallback when server proxy is unavailable or reports server error
+const directClientFallback = async (
+  input: string,
+  systemPrompt: string,
+  attachment?: Attachment,
+  chatHistory: any[] = [],
+  provider: string = 'GEMINI',
+  modelName: string = 'gemini-2.5-flash'
+): Promise<string> => {
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+  const openaiKey = loadSecureSetting('openai_key') || localStorage.getItem('openai_api_key') || '';
+
+  if (provider === 'OPENAI' && openaiKey) {
+    const openai = new OpenAI({ apiKey: openaiKey, dangerouslyAllowBrowser: true });
+    const messages: any[] = [{ role: 'system', content: systemPrompt }];
+    if (chatHistory && chatHistory.length > 0) {
+      chatHistory.forEach((msg: any) => {
+        const content = msg.parts ? msg.parts[0]?.text : msg.content;
+        if (content && typeof content === 'string' && !content.startsWith('⚠️')) {
+          messages.push({ role: msg.role === 'model' || msg.role === 'assistant' ? 'assistant' : 'user', content });
+        }
+      });
+    }
+    messages.push({ role: 'user', content: input });
+    const response = await openai.chat.completions.create({
+      model: modelName || "gpt-4o",
+      messages,
+    });
+    return response.choices[0]?.message?.content || "";
+  }
+
+  if (geminiKey) {
+    const cleanKey = geminiKey.trim().replace(/^["']|["']$/g, '');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    
+    let selectedModel = (modelName || "gemini-2.5-flash").toLowerCase().trim();
+    if (selectedModel.includes("2.5-pro") || selectedModel === "gemini-pro") selectedModel = "gemini-2.5-pro";
+    else if (selectedModel.includes("3.7-flash")) selectedModel = "gemini-3.7-flash";
+    else selectedModel = "gemini-2.5-flash";
+
+    const parts: any[] = [{ text: input || "Olá" }];
+    if (attachment && attachment.data) {
+      const mime = (attachment.mimeType || '').toLowerCase();
+      const isTextual = mime.startsWith('text/') || mime.includes('csv') || mime.includes('ofx') || mime.includes('json') || mime.includes('xml');
+      if (isTextual) {
+        let textContent = attachment.data;
+        if (attachment.data.includes('base64,')) {
+          textContent = atob(attachment.data.split('base64,')[1]);
+        }
+        parts.push({ text: `\n\n--- DOCUMENTO/EXTRATO ANEXADO ---\n${textContent}\n--- FIM ---` });
+      } else {
+        const base64Data = attachment.data.includes('base64,') ? attachment.data.split(',')[1] : attachment.data;
+        parts.push({ inlineData: { mimeType: attachment.mimeType || 'image/jpeg', data: base64Data } });
+      }
+    }
+
+    const sanitizedContents: any[] = [];
+    if (chatHistory && Array.isArray(chatHistory)) {
+      for (const msg of chatHistory) {
+        const role = msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user';
+        let text = typeof msg.content === 'string' ? msg.content : (msg.parts?.[0]?.text || '');
+        if (!text || !text.trim() || text.startsWith('⚠️ Falha na análise inteligente:') || text.startsWith('Erro no proxy')) continue;
+        
+        const last = sanitizedContents[sanitizedContents.length - 1];
+        if (last && last.role === role) {
+          last.parts.push({ text });
+        } else {
+          sanitizedContents.push({ role, parts: [{ text }] });
+        }
+      }
+    }
+    if (sanitizedContents.length > 0 && sanitizedContents[0].role === 'model') {
+      sanitizedContents.shift();
+    }
+    const last = sanitizedContents[sanitizedContents.length - 1];
+    if (last && last.role === 'user') {
+      last.parts.push(...parts);
+    } else {
+      sanitizedContents.push({ role: 'user', parts });
+    }
+
+    const response = await ai.models.generateContent({
+      model: selectedModel,
+      contents: sanitizedContents,
+      config: { systemInstruction: systemPrompt }
+    });
+    return response.text || "";
+  }
+
+  throw new Error("API Key não configurada. Acesse Admin Settings > Serviços de Nuvem e salve sua chave.");
+};
+
 const SYSTEM_PROMPT = `
     ## 🤖 PERFIL: ASSISTENTE VIRTUAL INTELIGENTE (FinanAI OS / WhatsApp Interface)
     Você é um assistente virtual e agente financeiro/comercial dotado de visão computacional, capacidade de leitura avançada de extratos bancários (PDF, OFX, CSV, Imagens), gestão de NFS-e, conciliação e catálogo de produtos/serviços em tempo real.
@@ -157,41 +268,60 @@ export const analyzeFinancialInput = async (
   extractedCustomers?: any[];
   extractedSuppliers?: any[];
 }> => {
-  try {
-    const provider = localStorage.getItem('chat_provider') || 'GEMINI';
-    const agora = new Date();
-    const dateContext = `[Data/Hora Atual]: ${agora.toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-    
-    // We send extra context as system instruction components
-    let fullSystemPrompt = SYSTEM_PROMPT;
-    fullSystemPrompt += `\n${dateContext}`;
-    if (userContext) fullSystemPrompt += `\n[Contexto do Usuário]: Nome: ${userContext.name}, Plano: ${userContext.plan}`;
-    if (dbContext) fullSystemPrompt += `\n[Contexto DB]: ${dbContext}`;
+  const provider = localStorage.getItem('chat_provider') || 'GEMINI';
+  const modelName = provider === 'OPENAI' 
+    ? (localStorage.getItem('openai_model') || 'gpt-4o') 
+    : (localStorage.getItem('gemini_model') || 'gemini-2.5-flash');
+  const agora = new Date();
+  const dateContext = `[Data/Hora Atual]: ${agora.toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+  
+  let fullSystemPrompt = SYSTEM_PROMPT;
+  fullSystemPrompt += `\n${dateContext}`;
+  if (userContext) fullSystemPrompt += `\n[Contexto do Usuário]: Nome: ${userContext.name}, Plano: ${userContext.plan}`;
+  if (dbContext) fullSystemPrompt += `\n[Contexto DB]: ${dbContext}`;
 
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+  const openaiKey = loadSecureSetting('openai_key') || localStorage.getItem('openai_api_key') || '';
+
+  try {
     const response = await fetch("/api/ai/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAIAuthHeaders(),
       body: JSON.stringify({
         input,
         attachment,
         lang,
         chatHistory,
         provider,
-        modelName: provider === 'OPENAI' ? (localStorage.getItem('openai_model') || 'gpt-4o') : (localStorage.getItem('gemini_model') || 'gemini-2.5-flash'),
+        geminiKey: geminiKey || undefined,
+        openaiKey: openaiKey || undefined,
+        modelName,
         systemPrompt: fullSystemPrompt
       })
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Erro no proxy do servidor (${response.status})`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.text) {
+        return processAIResponse(data.text);
+      }
     }
 
-    const data = await response.json();
-    return processAIResponse(data.text);
+    // If server responded with error, attempt direct client fallback
+    console.warn(`[geminiService] Proxy error (${response.status}), attempting direct fallback...`);
+    const directText = await directClientFallback(input, fullSystemPrompt, attachment, chatHistory, provider, modelName);
+    return processAIResponse(directText);
   } catch (error: any) {
-    console.error("AI Analysis Error:", error);
-    return { textResponse: `⚠️ Falha na análise inteligente: ${error.message}` };
+    console.warn("[geminiService] Fetch failed, attempting direct fallback:", error);
+    try {
+      const directText = await directClientFallback(input, fullSystemPrompt, attachment, chatHistory, provider, modelName);
+      return processAIResponse(directText);
+    } catch (fallbackError: any) {
+      console.error("AI Analysis Error (Direct Fallback also failed):", fallbackError);
+      return { 
+        textResponse: `⚠️ Falha na análise inteligente: ${fallbackError.message || error.message || 'Verifique sua chave de API em Configurações'}` 
+      };
+    }
   }
 };
 
@@ -307,22 +437,50 @@ const processAIResponse = (rawText: string) => {
  * Método genérico para geração de texto/chat sem processamento financeiro específico via proxy.
  */
 export const generateChatResponse = async (prompt: string, history: any[] = []): Promise<string> => {
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+  const openaiKey = loadSecureSetting('openai_key') || localStorage.getItem('openai_api_key') || '';
+
   try {
     const response = await fetch("/api/ai/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, history })
+      headers: getAIAuthHeaders(),
+      body: JSON.stringify({ 
+        prompt, 
+        history,
+        geminiKey: geminiKey || undefined,
+        openaiKey: openaiKey || undefined
+      })
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Erro no servidor (${response.status})`);
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (data.text) return data.text.trim();
     }
 
-    const data = await response.json().catch(() => ({}));
-    return data.text ? data.text.trim() : "";
+    // Direct fallback if configured
+    if (geminiKey) {
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const res = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      return res.text || "";
+    }
+
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Erro no servidor (${response.status})`);
   } catch (error: any) {
     console.error("Gemini Generic Error:", error);
+    if (geminiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const res = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt
+        });
+        return res.text || "";
+      } catch (e) {}
+    }
     return `Erro ao gerar resposta: ${error.message}`;
   }
 };
@@ -331,29 +489,63 @@ export const generateChatResponse = async (prompt: string, history: any[] = []):
  * Testa a conexão com o Gemini API via Backend Proxy.
  */
 export const testGeminiConnection = async (apiKey?: string): Promise<{ success: boolean; message?: string }> => {
+  const keyToTest = apiKey || loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
     const response = await fetch("/api/ai/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: 'GEMINI', apiKey }),
+        headers: getAIAuthHeaders(),
+        body: JSON.stringify({ provider: 'GEMINI', apiKey: keyToTest }),
         signal: controller.signal
     });
     clearTimeout(timeoutId);
     
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        return { success: false, message: err.error || `Erro na validação do Gemini (${response.status})` };
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: true, message: data.message || "OK" };
     }
     
-    const data = await response.json().catch(() => ({}));
-    return { success: true, message: data.message || "OK" };
+    const err = await response.json().catch(() => ({}));
+    
+    // Direct client test fallback
+    if (keyToTest) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: keyToTest.trim() });
+        await ai.models.generateContent({ model: "gemini-2.5-flash", contents: "test" });
+        return { success: true, message: "OK (Conexão Direta Validada)" };
+      } catch (directErr: any) {
+        return { success: false, message: directErr.message || err.error || "Chave do Gemini inválida" };
+      }
+    }
+
+    return { success: false, message: err.error || `Erro na validação do Gemini (${response.status})` };
   } catch (error: any) {
     if (error.name === 'AbortError') {
+      if (keyToTest) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: keyToTest.trim() });
+          await ai.models.generateContent({ model: "gemini-2.5-flash", contents: "test" });
+          return { success: true, message: "OK (Conexão Direta Validada)" };
+        } catch (directErr: any) {
+          return { success: false, message: "Tempo limite na validação do Gemini" };
+        }
+      }
       return { success: false, message: "Tempo limite na validação do Gemini" };
     }
+    
+    if (keyToTest) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: keyToTest.trim() });
+        await ai.models.generateContent({ model: "gemini-2.5-flash", contents: "test" });
+        return { success: true, message: "OK (Conexão Direta Validada)" };
+      } catch (directErr: any) {
+        return { success: false, message: directErr.message || error.message || "Erro na validação do Gemini" };
+      }
+    }
+
     return { success: false, message: error.message || "Erro na conexão com o serviço Gemini" };
   }
 };
@@ -387,28 +579,47 @@ export const scanReceiptWithGemini = async (
   categories?: string[],
   mimeType: string = 'image/jpeg'
 ): Promise<ReceiptOcrResult> => {
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+
   try {
     const response = await fetch("/api/ai/ocr-receipt", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAIAuthHeaders(),
       body: JSON.stringify({
         imageBase64,
         mimeType,
-        categories
+        categories,
+        geminiKey: geminiKey || undefined
       })
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Erro no servidor (${response.status})`);
+    if (response.ok) {
+      const resData = await response.json();
+      if (resData.data) {
+        return resData.data;
+      }
     }
 
-    const resData = await response.json();
-    if (!resData.data) {
-      throw new Error("Não foi possível extrair dados estruturados do recibo.");
+    // Direct client OCR fallback
+    if (geminiKey) {
+      const ai = new GoogleGenAI({ apiKey: geminiKey.trim() });
+      const cleanData = imageBase64.includes('base64,') ? imageBase64.split('base64,')[1] : imageBase64;
+      const ocrPrompt = `Extraia os dados deste comprovante financeiro no formato JSON com as chaves: date (AAAA-MM-DD), amount (número float), description (string), type ("EXPENSE" ou "INCOME"), category (string), entity_name (string).`;
+      const res = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { role: 'user', parts: [{ text: ocrPrompt }, { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanData } }] }
+        ],
+        config: { responseMimeType: "application/json" }
+      });
+      const parsed = JSON.parse(res.text || '{}');
+      if (parsed.amount || parsed.description) {
+        return parsed as ReceiptOcrResult;
+      }
     }
 
-    return resData.data;
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Erro no servidor (${response.status})`);
   } catch (error: any) {
     console.error("Erro no OCR com Gemini:", error);
     throw error;
@@ -443,46 +654,47 @@ export interface DailyInsightData {
  * Consulta a IA do Gemini para gerar uma análise diária de gastos comparando com a média do mês e 1 dica acionável.
  */
 export const getDailyFinancialInsight = async (params: DailyInsightParams): Promise<DailyInsightData> => {
+  const geminiKey = loadSecureSetting('gemini_key') || localStorage.getItem('gemini_api_key') || '';
+
   try {
     const response = await fetch("/api/ai/daily-insight", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params)
+      headers: getAIAuthHeaders(),
+      body: JSON.stringify({
+        ...params,
+        geminiKey: geminiKey || undefined
+      })
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Erro ao gerar insight diário (${response.status})`);
+    if (response.ok) {
+      const resData = await response.json();
+      if (resData.data) {
+        return resData.data;
+      }
     }
-
-    const resData = await response.json();
-    if (!resData.data) {
-      throw new Error("Dados de insight não retornados.");
-    }
-
-    return resData.data;
   } catch (error: any) {
-    console.error("Erro no Daily Financial Insight:", error);
-    // Safe client-side fallback
-    const diffAmount = params.todaySpending - params.monthlyAvgDailySpend;
-    const diffPercent = params.monthlyAvgDailySpend > 0
-      ? Math.round(((params.todaySpending - params.monthlyAvgDailySpend) / params.monthlyAvgDailySpend) * 100)
-      : 0;
-
-    return {
-      headline: diffPercent > 0 ? `Gastos ${diffPercent}% acima da média diária` : 'Gastos diários sob controle',
-      analysis: `Hoje você gastou R$ ${params.todaySpending.toFixed(2)}, enquanto sua média do mês é de R$ ${params.monthlyAvgDailySpend.toFixed(2)}/dia.`,
-      actionableTip: diffPercent > 0 
-        ? 'Compense os gastos atípicos de hoje limitando compras variáveis amanhã.' 
-        : 'Mantenha esse ritmo para garantir sobra financeira no fechamento do mês.',
-      healthStatus: diffPercent > 20 ? 'ATTENTION' : 'GOOD',
-      spendingPace: diffPercent > 20 ? 'ABOVE_BENCHMARK' : 'OPTIMAL',
-      todaySpending: params.todaySpending,
-      monthlyAvgDailySpend: params.monthlyAvgDailySpend,
-      diffPercent,
-      status: diffPercent > 15 ? 'ABOVE_AVERAGE' : diffPercent < -15 ? 'BELOW_AVERAGE' : 'ON_TRACK',
-      source: 'algorithmic_fallback'
-    };
+    console.error("Erro no Daily Financial Insight via proxy:", error);
   }
+
+  // Safe and Instant algorithmic fallback
+  const diffAmount = params.todaySpending - params.monthlyAvgDailySpend;
+  const diffPercent = params.monthlyAvgDailySpend > 0
+    ? Math.round(((params.todaySpending - params.monthlyAvgDailySpend) / params.monthlyAvgDailySpend) * 100)
+    : 0;
+
+  return {
+    headline: diffPercent > 0 ? `Gastos ${diffPercent}% acima da média diária` : 'Gastos diários sob controle',
+    analysis: `Hoje você gastou R$ ${params.todaySpending.toFixed(2)}, enquanto sua média do mês é de R$ ${params.monthlyAvgDailySpend.toFixed(2)}/dia.`,
+    actionableTip: diffPercent > 0 
+      ? 'Compense os gastos atípicos de hoje limitando compras variáveis amanhã.' 
+      : 'Mantenha esse ritmo para garantir sobra financeira no fechamento do mês.',
+    healthStatus: diffPercent > 20 ? 'ATTENTION' : 'GOOD',
+    spendingPace: diffPercent > 20 ? 'ABOVE_BENCHMARK' : 'OPTIMAL',
+    todaySpending: params.todaySpending,
+    monthlyAvgDailySpend: params.monthlyAvgDailySpend,
+    diffPercent,
+    status: diffPercent > 15 ? 'ABOVE_AVERAGE' : diffPercent < -15 ? 'BELOW_AVERAGE' : 'ON_TRACK',
+    source: 'algorithmic_fallback'
+  };
 };
 

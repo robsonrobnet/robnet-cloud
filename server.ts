@@ -127,27 +127,49 @@ async function getSecureConfigFromDbOnly(key: string, req?: Request): Promise<st
 async function getSecureConfig(key: string, req?: Request): Promise<string | null> {
   // 1. Try Headers first (best for highly secure, local-fallback setups like Vercel with custom databases)
   if (req) {
-    const headerMapping: Record<string, string> = {
-      'GEMINI_API_KEY': 'x-gemini-key',
-      'OPENAI_API_KEY': 'x-openai-key',
-      'STRIPE_SECRET_KEY': 'x-stripe-key',
-      'EVOLUTION_API_KEY': 'x-evolution-key',
-      'EVOLUTION_URL': 'x-evolution-url'
+    const headerMapping: Record<string, string[]> = {
+      'GEMINI_API_KEY': ['x-gemini-key', 'x-gemini-api-key', 'gemini-key', 'gemini_api_key'],
+      'OPENAI_API_KEY': ['x-openai-key', 'x-openai-api-key', 'openai-key', 'openai_api_key'],
+      'STRIPE_SECRET_KEY': ['x-stripe-key', 'x-stripe-secret-key', 'stripe-key'],
+      'SUPABASE_URL': ['x-supabase-url'],
+      'SUPABASE_ANON_KEY': ['x-supabase-key', 'x-supabase-anon-key'],
+      'EVOLUTION_API_KEY': ['x-evolution-key'],
+      'EVOLUTION_URL': ['x-evolution-url']
     };
-    const headerName = headerMapping[key];
-    if (headerName) {
-      const headerVal = req.headers[headerName] as string || req.headers[headerName.toLowerCase()] as string;
-      if (headerVal && headerVal.trim() && !headerVal.includes('...')) {
-         return headerVal.trim();
+    
+    const possibleHeaders = headerMapping[key] || [key.toLowerCase(), `x-${key.toLowerCase().replace(/_/g, '-')}`];
+    for (const h of possibleHeaders) {
+      const headerVal = (req.headers[h] as string) || (req.headers[h.toLowerCase()] as string);
+      if (headerVal && typeof headerVal === 'string' && headerVal.trim() && !headerVal.includes('...')) {
+        return headerVal.trim();
       }
     }
   }
 
-  // 2. Try Environment Variable (instant and reliable)
-  const envVal = process.env[key];
+  // 2. Try Request Body (direct payload fallback)
+  if (req && req.body && typeof req.body === 'object') {
+    if (key === 'GEMINI_API_KEY') {
+      const bKey = req.body.geminiKey || req.body.gemini_key || (req.body.provider === 'GEMINI' ? req.body.apiKey : null) || req.body.apiKey;
+      if (bKey && typeof bKey === 'string' && bKey.trim() && !bKey.includes('...') && bKey.length > 10) {
+        return bKey.trim();
+      }
+    }
+    if (key === 'OPENAI_API_KEY') {
+      const bKey = req.body.openaiKey || req.body.openai_key || (req.body.provider === 'OPENAI' ? req.body.apiKey : null);
+      if (bKey && typeof bKey === 'string' && bKey.trim() && !bKey.includes('...') && bKey.length > 10) {
+        return bKey.trim();
+      }
+    }
+    if (key === 'STRIPE_SECRET_KEY' && req.body.stripeKey) {
+      return req.body.stripeKey.trim();
+    }
+  }
+
+  // 3. Try Environment Variable (instant and reliable)
+  const envVal = process.env[key] || (key === 'GEMINI_API_KEY' ? process.env.GOOGLE_API_KEY : undefined);
   if (envVal && envVal.trim()) return envVal.trim();
 
-  // 3. Try Database (master_config table)
+  // 4. Try Database (master_config table)
   const dbVal = await getSecureConfigFromDbOnly(key, req);
   if (dbVal) return dbVal;
 
@@ -156,8 +178,13 @@ async function getSecureConfig(key: string, req?: Request): Promise<string | nul
 
 // --- AI HELPER FUNCTIONS ---
 async function callGemini(apiKey: string, modelName: string, systemPrompt: string, input: string, attachment: any, chatHistory: any[]) {
+  const cleanKey = (apiKey || "").trim().replace(/^["']|["']$/g, '');
+  if (!cleanKey) {
+    throw new Error("Chave de API do Gemini não fornecida.");
+  }
+
   const ai = new GoogleGenAI({
-    apiKey,
+    apiKey: cleanKey,
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build'
@@ -165,12 +192,17 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
     }
   });
 
-  let selectedModel = modelName || "gemini-2.5-flash";
-  if (selectedModel === "gemini-3.6-flash" || selectedModel === "gemini-1.5-flash" || selectedModel === "gemini-1.5-pro" || selectedModel === "gemini-pro") {
+  // Safe Model Aliases Mapping
+  let selectedModel = (modelName || "gemini-2.5-flash").toLowerCase().trim();
+  if (selectedModel.includes("2.5-pro") || selectedModel === "gemini-pro") {
+    selectedModel = "gemini-2.5-pro";
+  } else if (selectedModel.includes("3.7-flash")) {
+    selectedModel = "gemini-3.7-flash";
+  } else {
     selectedModel = "gemini-2.5-flash";
   }
 
-  const parts: any[] = [{ text: input }];
+  const parts: any[] = [{ text: input || "Olá" }];
   if (attachment && attachment.data) {
     const mime = (attachment.mimeType || '').toLowerCase();
     const isTextual = mime.startsWith('text/') || mime.includes('csv') || mime.includes('ofx') || mime.includes('json') || mime.includes('xml');
@@ -181,7 +213,6 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
         if (attachment.data.includes('base64,')) {
           textContent = Buffer.from(attachment.data.split('base64,')[1], 'base64').toString('utf-8');
         } else if (!attachment.data.startsWith('<') && !attachment.data.includes('\n') && attachment.data.length > 50) {
-          // Possível base64 sem prefixo
           textContent = Buffer.from(attachment.data, 'base64').toString('utf-8');
         }
         parts.push({ text: `\n\n--- DOCUMENTO/EXTRATO ANEXADO (${attachment.mimeType || 'Extrato'}) ---\n${textContent}\n--- FIM DO DOCUMENTO ---` });
@@ -195,20 +226,47 @@ async function callGemini(apiKey: string, modelName: string, systemPrompt: strin
     }
   }
 
-  const contents: any[] = [];
-  if (chatHistory && chatHistory.length > 0) {
-    chatHistory.forEach((msg: any) => {
-      contents.push({
-        role: msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user',
-        parts: msg.parts || [{ text: msg.content || "" }]
-      });
-    });
+  // Construct Sanitized Turn-Alternating History for Gemini
+  const sanitizedContents: any[] = [];
+  if (chatHistory && Array.isArray(chatHistory) && chatHistory.length > 0) {
+    for (const msg of chatHistory) {
+      const role = msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user';
+      let text = typeof msg.content === 'string' ? msg.content : (msg.parts?.[0]?.text || '');
+      if (!text || !text.trim()) continue;
+      
+      // Skip internal error strings from polluting history turns
+      if (text.startsWith('⚠️ Falha na análise inteligente:') || text.startsWith('Erro no proxy')) {
+        continue;
+      }
+
+      const lastMsg = sanitizedContents[sanitizedContents.length - 1];
+      if (lastMsg && lastMsg.role === role) {
+        lastMsg.parts.push({ text });
+      } else {
+        sanitizedContents.push({
+          role,
+          parts: [{ text }]
+        });
+      }
+    }
   }
-  contents.push({ role: 'user', parts });
+
+  // Ensure first turn in history is user if history exists
+  if (sanitizedContents.length > 0 && sanitizedContents[0].role === 'model') {
+    sanitizedContents.shift();
+  }
+
+  // Append the current turn
+  const lastMsg = sanitizedContents[sanitizedContents.length - 1];
+  if (lastMsg && lastMsg.role === 'user') {
+    lastMsg.parts.push(...parts);
+  } else {
+    sanitizedContents.push({ role: 'user', parts });
+  }
 
   const response = await ai.models.generateContent({
     model: selectedModel,
-    contents,
+    contents: sanitizedContents,
     config: {
       systemInstruction: systemPrompt
     }
