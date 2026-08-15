@@ -415,3 +415,74 @@ export const scanReceiptWithGemini = async (
   }
 };
 
+export interface DailyInsightParams {
+  todaySpending: number;
+  monthlyAvgDailySpend: number;
+  totalMonthlySpend: number;
+  dayOfMonth: number;
+  daysInMonth: number;
+  scope?: 'ALL' | 'BUSINESS' | 'PERSONAL';
+  topCategories?: Array<{ name: string; value: number }>;
+  todayExpensesList?: Array<{ description: string; amount: number; category?: string }>;
+}
+
+export interface DailyInsightData {
+  headline: string;
+  analysis: string;
+  actionableTip: string;
+  healthStatus: 'EXCELLENT' | 'GOOD' | 'ATTENTION' | 'CRITICAL';
+  spendingPace: 'BELOW_BENCHMARK' | 'OPTIMAL' | 'ABOVE_BENCHMARK';
+  todaySpending: number;
+  monthlyAvgDailySpend: number;
+  diffPercent: number;
+  status: 'ABOVE_AVERAGE' | 'BELOW_AVERAGE' | 'ON_TRACK' | 'NO_SPEND';
+  source: 'gemini' | 'algorithmic_fallback';
+}
+
+/**
+ * Consulta a IA do Gemini para gerar uma análise diária de gastos comparando com a média do mês e 1 dica acionável.
+ */
+export const getDailyFinancialInsight = async (params: DailyInsightParams): Promise<DailyInsightData> => {
+  try {
+    const response = await fetch("/api/ai/daily-insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params)
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao gerar insight diário (${response.status})`);
+    }
+
+    const resData = await response.json();
+    if (!resData.data) {
+      throw new Error("Dados de insight não retornados.");
+    }
+
+    return resData.data;
+  } catch (error: any) {
+    console.error("Erro no Daily Financial Insight:", error);
+    // Safe client-side fallback
+    const diffAmount = params.todaySpending - params.monthlyAvgDailySpend;
+    const diffPercent = params.monthlyAvgDailySpend > 0
+      ? Math.round(((params.todaySpending - params.monthlyAvgDailySpend) / params.monthlyAvgDailySpend) * 100)
+      : 0;
+
+    return {
+      headline: diffPercent > 0 ? `Gastos ${diffPercent}% acima da média diária` : 'Gastos diários sob controle',
+      analysis: `Hoje você gastou R$ ${params.todaySpending.toFixed(2)}, enquanto sua média do mês é de R$ ${params.monthlyAvgDailySpend.toFixed(2)}/dia.`,
+      actionableTip: diffPercent > 0 
+        ? 'Compense os gastos atípicos de hoje limitando compras variáveis amanhã.' 
+        : 'Mantenha esse ritmo para garantir sobra financeira no fechamento do mês.',
+      healthStatus: diffPercent > 20 ? 'ATTENTION' : 'GOOD',
+      spendingPace: diffPercent > 20 ? 'ABOVE_BENCHMARK' : 'OPTIMAL',
+      todaySpending: params.todaySpending,
+      monthlyAvgDailySpend: params.monthlyAvgDailySpend,
+      diffPercent,
+      status: diffPercent > 15 ? 'ABOVE_AVERAGE' : diffPercent < -15 ? 'BELOW_AVERAGE' : 'ON_TRACK',
+      source: 'algorithmic_fallback'
+    };
+  }
+};
+

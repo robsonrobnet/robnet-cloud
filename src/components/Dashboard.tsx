@@ -16,6 +16,7 @@ import { FinancialService } from '../services/financialService';
 import { motion, AnimatePresence } from 'motion/react';
 
 import AIAnalyzer from './AIAnalyzer';
+import DailyFinancialInsightCard from './DailyFinancialInsightCard';
 
 interface DashboardProps {
   transactions: Transaction[];
@@ -504,6 +505,15 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions = [], currentMonth, 
              <p className="mt-1 sm:mt-2 text-[8px] sm:text-[10px] font-bold text-amber-500 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-md w-fit">Base: R$ {financialStatement.avgDailySpend.toFixed(0)}/d</p>
            </div>
         </div>
+      </motion.div>
+
+      {/* Daily Financial Insight (Gemini AI Powered) */}
+      <motion.div variants={itemVariants}>
+        <DailyFinancialInsightCard 
+          transactions={transactions} 
+          currentMonth={currentMonth} 
+          activeScope={activeTab} 
+        />
       </motion.div>
 
       {/* Bento Grid Visualizations */}

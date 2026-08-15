@@ -488,6 +488,148 @@ Retorne ESTRITAMENTE um objeto JSON válido (sem comentários fora do JSON):
   }
 });
 
+// --- DAILY FINANCIAL INSIGHT WITH GEMINI ---
+app.post("/api/ai/daily-insight", async (req: Request, res: Response) => {
+  const { 
+    todaySpending = 0, 
+    monthlyAvgDailySpend = 0, 
+    totalMonthlySpend = 0, 
+    dayOfMonth = 1, 
+    daysInMonth = 30,
+    scope = 'ALL',
+    topCategories = [],
+    todayExpensesList = [] 
+  } = req.body;
+
+  const diffAmount = todaySpending - monthlyAvgDailySpend;
+  const diffPercent = monthlyAvgDailySpend > 0 
+    ? Math.round(((todaySpending - monthlyAvgDailySpend) / monthlyAvgDailySpend) * 100)
+    : (todaySpending > 0 ? 100 : 0);
+
+  let status = 'ON_TRACK';
+  if (todaySpending === 0) status = 'NO_SPEND';
+  else if (diffPercent > 15) status = 'ABOVE_AVERAGE';
+  else if (diffPercent < -15) status = 'BELOW_AVERAGE';
+
+  const systemInstruction = `Você é um analista financeiro executivo e consultor orçamentário do FinanAI OS.
+Sua função é analisar os gastos do dia atual em comparação direta com a média diária do mês e fornecer exatamente UMA dica acionável.
+Retorne estritamente em formato JSON com as chaves:
+- "headline": Título curto (max 6 palavras) resumindo o comparativo de hoje vs média.
+- "analysis": Análise de 1 a 2 frases contextualizando o ritmo de gastos de hoje em relação à média diária do mês.
+- "actionableTip": Exatamente UMA dica prática, acionável e imediata de economia, remanejamento ou gestão financeira.
+- "healthStatus": "EXCELLENT" | "GOOD" | "ATTENTION" | "CRITICAL"
+- "spendingPace": "BELOW_BENCHMARK" | "OPTIMAL" | "ABOVE_BENCHMARK"`;
+
+  const prompt = `Analise os dados financeiros do dia:
+- Gasto do dia de hoje: R$ ${Number(todaySpending).toFixed(2)}
+- Média diária de gastos deste mês: R$ ${Number(monthlyAvgDailySpend).toFixed(2)}
+- Total de saídas no mês até agora: R$ ${Number(totalMonthlySpend).toFixed(2)}
+- Dia de hoje: ${dayOfMonth} de ${daysInMonth} dias no mês
+- Variação de hoje em relação à média diária: ${diffPercent > 0 ? '+' : ''}${diffPercent}% (${diffAmount >= 0 ? 'acima' : 'abaixo'} por R$ ${Math.abs(diffAmount).toFixed(2)})
+- Escopo ativo: ${scope}
+- Despesas de hoje: ${todayExpensesList.length > 0 ? JSON.stringify(todayExpensesList.slice(0, 5)) : 'Nenhuma despesa registrada hoje'}
+- Principais categorias de despesa do mês: ${JSON.stringify(topCategories.slice(0, 3))}`;
+
+  try {
+    const geminiKey = await getSecureConfig('GEMINI_API_KEY', req) || process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      const ai = new GoogleGenAI({
+        apiKey: geminiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json"
+        }
+      });
+
+      const responseText = response.text || "";
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (e) {
+        const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          try { parsed = JSON.parse(jsonMatch[1]); } catch (pErr) {}
+        }
+      }
+
+      if (parsed && (parsed.actionableTip || parsed.analysis)) {
+        return res.json({
+          success: true,
+          data: {
+            headline: parsed.headline || (diffPercent > 0 ? `Gastos +${diffPercent}% acima da média` : `Gastos ${diffPercent}% da média diária`),
+            analysis: parsed.analysis || `Você gastou R$ ${Number(todaySpending).toFixed(2)} hoje em comparação com a média diária de R$ ${Number(monthlyAvgDailySpend).toFixed(2)}.`,
+            actionableTip: parsed.actionableTip || 'Monitore as compras variáveis nos próximos dias para manter o equilíbrio.',
+            healthStatus: parsed.healthStatus || (diffPercent > 20 ? 'ATTENTION' : 'GOOD'),
+            spendingPace: parsed.spendingPace || (diffPercent > 20 ? 'ABOVE_BENCHMARK' : 'OPTIMAL'),
+            todaySpending,
+            monthlyAvgDailySpend,
+            diffPercent,
+            status,
+            source: 'gemini'
+          }
+        });
+      }
+    }
+  } catch (err: any) {
+    console.error("[Daily Insight Gemini Error]:", err.message || err);
+  }
+
+  // Resilient Algorithmic Fallback if Gemini is not reachable
+  let fallbackHeadline = '';
+  let fallbackAnalysis = '';
+  let fallbackTip = '';
+  let healthStatus = 'GOOD';
+  let spendingPace = 'OPTIMAL';
+
+  if (todaySpending === 0) {
+    fallbackHeadline = 'Dia livre de despesas';
+    fallbackAnalysis = `Nenhum gasto registrado hoje. Sua média diária de despesas é de R$ ${Number(monthlyAvgDailySpend).toFixed(2)}.`;
+    fallbackTip = 'Aproveite dias sem saídas para direcionar sobras de caixa para sua reserva de emergência ou investimentos.';
+    healthStatus = 'EXCELLENT';
+    spendingPace = 'BELOW_BENCHMARK';
+  } else if (diffPercent > 20) {
+    fallbackHeadline = `Gasto ${diffPercent}% acima da média diária`;
+    fallbackAnalysis = `Hoje as despesas somaram R$ ${Number(todaySpending).toFixed(2)}, excedendo sua média de R$ ${Number(monthlyAvgDailySpend).toFixed(2)}/dia em R$ ${Math.abs(diffAmount).toFixed(2)}.`;
+    fallbackTip = 'Corte gastos discricionários nos próximos 2 dias para compensar e manter o teto orçamentário mensal.';
+    healthStatus = 'ATTENTION';
+    spendingPace = 'ABOVE_BENCHMARK';
+  } else if (diffPercent < -20) {
+    fallbackHeadline = `Economia de ${Math.abs(diffPercent)}% hoje vs média`;
+    fallbackAnalysis = `Você gastou R$ ${Number(todaySpending).toFixed(2)} hoje, ficando R$ ${Math.abs(diffAmount).toFixed(2)} abaixo da sua média diária de R$ ${Number(monthlyAvgDailySpend).toFixed(2)}.`;
+    fallbackTip = 'Mantenha esse ritmo para preservar liquidez e fechar o mês com superávit operacional.';
+    healthStatus = 'EXCELLENT';
+    spendingPace = 'BELOW_BENCHMARK';
+  } else {
+    fallbackHeadline = 'Gastos de hoje dentro da média';
+    fallbackAnalysis = `O desembolso diário de R$ ${Number(todaySpending).toFixed(2)} está alinhado com o padrão de consumo do mês (R$ ${Number(monthlyAvgDailySpend).toFixed(2)}/dia).`;
+    fallbackTip = 'Revise assinaturas e despesas fixas para liberar margem extra no fluxo de caixa.';
+    healthStatus = 'GOOD';
+    spendingPace = 'OPTIMAL';
+  }
+
+  return res.json({
+    success: true,
+    data: {
+      headline: fallbackHeadline,
+      analysis: fallbackAnalysis,
+      actionableTip: fallbackTip,
+      healthStatus,
+      spendingPace,
+      todaySpending,
+      monthlyAvgDailySpend,
+      diffPercent,
+      status,
+      source: 'algorithmic_fallback'
+    }
+  });
+});
+
 
 app.post("/api/ai/chat", async (req: Request, res: Response) => {
   const { prompt, history, modelName } = req.body;
